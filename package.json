@@ -77,7 +77,7 @@
     "@ai-sdk/google": "^3.0.13",
     "@ai-sdk/openai": "^3.0.18",
     "@ai-sdk/react": "^0.0.70",
-    "ai": "^3.4.33",
+    "ai": "^6.0.91",
     "electron-store": "^10.0.1",
     "electron-updater": "^6.3.9",
     "get-port": "^7.1.0",
