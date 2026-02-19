@@ -1,0 +1,15 @@
+# Default — all changes require owner review
+* @jreinhal
+
+# Security-critical paths
+/lib/guardrails.ts    @jreinhal
+/lib/audit-log.ts     @jreinhal
+/lib/db.ts            @jreinhal
+/electron/            @jreinhal
+
+# CI pipeline changes
+/.github/             @jreinhal
+
+# Configuration
+/.env.local.example   @jreinhal
+/next.config.ts       @jreinhal
