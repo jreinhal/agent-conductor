@@ -11,7 +11,10 @@
     "start": "next start",
     "lint": "eslint",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .\"",
-    "dist": "node scripts/build-desktop.js"
+    "dist": "node scripts/build-desktop.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "build": {
     "appId": "com.agent.conductor",
@@ -94,6 +97,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitest/coverage-v8": "^4.0.18",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
     "electron": "^40.0.0",
@@ -102,6 +106,7 @@
     "eslint-config-next": "^16.1.6",
     "tailwindcss": "^4",
     "typescript": "^5",
+    "vitest": "^4.0.18",
     "wait-on": "^9.0.3"
   },
   "overrides": {
