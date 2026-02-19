@@ -4,7 +4,7 @@ import { join } from 'path';
 import { validateSession } from '@/lib/protocol/validator';
 import { parseSession } from '@/lib/protocol/parser';
 import { ValidationCodes } from '@/lib/protocol/types';
-import type { BounceSession, ProtocolEntry, ProtocolRules } from '@/lib/protocol/types';
+import type { BounceSession, ProtocolEntry, ProtocolRules, Stance } from '@/lib/protocol/types';
 
 const FIXTURES = join(__dirname, '..', 'fixtures', 'protocol');
 
@@ -218,7 +218,7 @@ describe('validateSession', () => {
       session.entries = [
         makeEntry({
           fields: {
-            stance: 'maybe' as any,
+            stance: 'maybe' as unknown as Stance,
             confidence: 0.8,
             summary: 'test',
             actionRequested: 'n/a',
@@ -240,7 +240,7 @@ describe('validateSession', () => {
       session.entries = [
         makeEntry({
           fields: {
-            stance: 'strongly-agree' as any,
+            stance: 'strongly-agree' as unknown as Stance,
             confidence: 0.9,
             summary: 'test',
             actionRequested: 'n/a',
