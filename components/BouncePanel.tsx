@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
     MessageCircle,
     ThumbsUp,
@@ -35,6 +35,12 @@ interface BouncePanelProps {
 export function BouncePanel({ maxHeight = '600px' }: BouncePanelProps) {
     const bounceState = useBounceState();
     const [findingsDismissed, setFindingsDismissed] = useState(false);
+
+    // Reset dismissal when a new debate completes
+    const debateStartedAt = bounceState.startedAt;
+    useEffect(() => {
+        setFindingsDismissed(false);
+    }, [debateStartedAt]);
 
     const { rounds, consensus, finalAnswer, originalTopic, status } = bounceState;
 

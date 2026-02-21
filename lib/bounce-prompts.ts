@@ -185,6 +185,14 @@ Be direct about agreements and disagreements. Reference specific points from oth
         responseBlocks[i] = condensedBlocks[i];
     }
 
+    // Fallback: if still over budget after condensing all older responses,
+    // condense the newest response too rather than overflowing model context
+    if (totalTokens > budget && responseBlocks.length > 0) {
+        const lastIdx = responseBlocks.length - 1;
+        totalTokens = totalTokens - fullBlockTokens[lastIdx] + condensedBlockTokens[lastIdx];
+        responseBlocks[lastIdx] = condensedBlocks[lastIdx];
+    }
+
     return promptFrame.replace('{RESPONSES}', responseBlocks.join('\n---\n\n'));
 }
 
