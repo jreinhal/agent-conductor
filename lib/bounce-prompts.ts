@@ -86,25 +86,52 @@ Structure your response as:
 }
 
 /**
- * Build a debate prompt that includes previous responses
+ * Estimate token count from text (words * 1.3 is a reasonable approximation)
  */
-export function buildDebatePromptWithHistory(
-    topic: string,
-    previousResponses: BounceResponse[],
-    roundNumber: number
-): string {
-    const responsesSummary = previousResponses.map((r, i) => {
-        const stanceEmoji = getStanceEmoji(r.stance);
-        return `### ${r.modelTitle} ${stanceEmoji}
+function estimateTokens(text: string): number {
+    return Math.ceil(text.split(/\s+/).length * 1.3);
+}
+
+/**
+ * Build a full-detail response block for a single response
+ */
+function buildFullResponseBlock(r: BounceResponse): string {
+    const stanceEmoji = getStanceEmoji(r.stance);
+    return `### ${r.modelTitle} ${stanceEmoji}
 **Stance**: ${formatStance(r.stance)}
 
 ${r.content}
 
 ${r.keyPoints.length > 0 ? `**Key Points**:\n${r.keyPoints.map(p => `- ${p}`).join('\n')}` : ''}
 `;
-    }).join('\n---\n\n');
+}
 
-    return `## Debate Topic
+/**
+ * Build a condensed response block (stance + key points only, no full content)
+ */
+function buildCondensedResponseBlock(r: BounceResponse): string {
+    const stanceEmoji = getStanceEmoji(r.stance);
+    const points = r.keyPoints.length > 0
+        ? r.keyPoints.map(p => `- ${p}`).join('\n')
+        : '- (no key points extracted)';
+    return `### ${r.modelTitle} ${stanceEmoji} *(condensed)*
+**Stance**: ${formatStance(r.stance)}
+**Key Points**:
+${points}
+`;
+}
+
+/**
+ * Build a debate prompt that includes previous responses.
+ * If maxContextTokens is provided, older responses are condensed to fit within budget.
+ */
+export function buildDebatePromptWithHistory(
+    topic: string,
+    previousResponses: BounceResponse[],
+    roundNumber: number,
+    maxContextTokens?: number
+): string {
+    const promptFrame = `## Debate Topic
 
 ${topic}
 
@@ -112,7 +139,7 @@ ${topic}
 
 ## Previous Responses (Round ${roundNumber})
 
-${responsesSummary}
+{RESPONSES}
 
 ---
 
@@ -128,6 +155,32 @@ Structure your response as:
 5. **Conclusion**: Your current position
 
 Be direct about agreements and disagreements. Reference specific points from other participants.`;
+
+    const frameTokens = estimateTokens(promptFrame);
+
+    // Build all full-detail blocks
+    const fullBlocks = previousResponses.map(r => buildFullResponseBlock(r));
+    const condensedBlocks = previousResponses.map(r => buildCondensedResponseBlock(r));
+
+    // If no budget or fits within budget, use full detail
+    const fullContent = fullBlocks.join('\n---\n\n');
+    if (!maxContextTokens || estimateTokens(fullContent) + frameTokens <= maxContextTokens) {
+        return promptFrame.replace('{RESPONSES}', fullContent);
+    }
+
+    // Budget exceeded: condense older responses, keep recent ones full
+    // Strategy: work backwards from newest, keeping full detail until budget is hit
+    const responseBlocks = [...fullBlocks];
+    let totalTokens = estimateTokens(responseBlocks.join('\n---\n\n')) + frameTokens;
+    const budget = maxContextTokens;
+
+    for (let i = 0; i < responseBlocks.length - 1 && totalTokens > budget; i++) {
+        // Replace oldest not-yet-condensed response with condensed version
+        responseBlocks[i] = condensedBlocks[i];
+        totalTokens = estimateTokens(responseBlocks.join('\n---\n\n')) + frameTokens;
+    }
+
+    return promptFrame.replace('{RESPONSES}', responseBlocks.join('\n---\n\n'));
 }
 
 /**

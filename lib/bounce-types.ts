@@ -35,6 +35,15 @@ export interface BounceConfig {
 
     /** Auto-stop when consensus reached */
     autoStopOnConsensus: boolean;
+
+    /** Prune aligned participants between rounds to reduce API costs */
+    enablePruning: boolean;
+
+    /** Similarity threshold above which a participant is pruned (0.0-1.0) */
+    pruningThreshold: number;
+
+    /** Approximate token budget for debate context passed to each model */
+    maxContextTokens: number;
 }
 
 export interface ParticipantConfig {
@@ -53,6 +62,9 @@ export const DEFAULT_BOUNCE_CONFIG: BounceConfig = {
     allowUserInterjection: true,
     judgeModelId: 'claude-sonnet-4',
     autoStopOnConsensus: true,
+    enablePruning: false,
+    pruningThreshold: 0.85,
+    maxContextTokens: 8000,
 };
 
 // ============================================================================
@@ -96,6 +108,9 @@ export interface BounceState {
     /** Final synthesized answer (after judging) */
     finalAnswer: string | null;
 
+    /** Participants removed by pruning (still tracked for display) */
+    prunedParticipants: Array<{ sessionId: string; modelTitle: string; prunedAtRound: number }>;
+
     /** Error message if status is 'error' */
     error: string | null;
 
@@ -113,6 +128,7 @@ export const INITIAL_BOUNCE_STATE: BounceState = {
     currentParticipantIndex: 0,
     rounds: [],
     consensus: null,
+    prunedParticipants: [],
     finalAnswer: null,
     error: null,
     startedAt: null,
@@ -224,7 +240,8 @@ export type BounceEvent =
     | { type: 'BOUNCE_RESUMED' }
     | { type: 'BOUNCE_COMPLETE'; finalAnswer: string; consensus: ConsensusAnalysis }
     | { type: 'BOUNCE_ERROR'; error: string }
-    | { type: 'BOUNCE_CANCELLED' };
+    | { type: 'BOUNCE_CANCELLED' }
+    | { type: 'PARTICIPANT_PRUNED'; sessionId: string; modelTitle: string; reason: string };
 
 export type BounceEventHandler = (event: BounceEvent) => void;
 

@@ -363,6 +363,85 @@ export function updateConsensusWithTrend(
 }
 
 // ============================================================================
+// Participant Pruning
+// ============================================================================
+
+/**
+ * Identify participants whose responses are highly similar to another participant.
+ * These participants are not adding signal and can be pruned to reduce costs.
+ * Returns session IDs of participants to prune (never prunes below 2 active).
+ */
+export function identifyPrunableParticipants(
+    roundResponses: BounceResponse[],
+    threshold: number,
+): { sessionId: string; modelTitle: string; similarTo: string }[] {
+    if (roundResponses.length <= 2) return [];
+
+    const prunable: { sessionId: string; modelTitle: string; similarTo: string }[] = [];
+
+    // For each pair, check if one is highly similar to another
+    // We keep the first participant and mark later ones as prunable
+    const kept = new Set<string>();
+
+    for (const response of roundResponses) {
+        let isSimilarToKept = false;
+        let similarToTitle = '';
+
+        for (const keptId of kept) {
+            const keptResponse = roundResponses.find(r => r.participantSessionId === keptId);
+            if (!keptResponse) continue;
+
+            const wordSim = calculateSimilarityPublic(response.content, keptResponse.content);
+            const bigramSim = calculateBigramSimilarityPublic(response.content, keptResponse.content);
+            const combined = wordSim * 0.6 + bigramSim * 0.4;
+
+            // Also check stance alignment
+            const stanceDiff = Math.abs(
+                stanceToNumericPublic(response.stance) - stanceToNumericPublic(keptResponse.stance)
+            );
+
+            // High content similarity AND similar stance = redundant
+            if (combined >= threshold && stanceDiff <= 0.15) {
+                isSimilarToKept = true;
+                similarToTitle = keptResponse.modelTitle;
+                break;
+            }
+        }
+
+        if (isSimilarToKept) {
+            prunable.push({
+                sessionId: response.participantSessionId,
+                modelTitle: response.modelTitle,
+                similarTo: similarToTitle,
+            });
+        } else {
+            kept.add(response.participantSessionId);
+        }
+    }
+
+    // Never prune below 2 active participants
+    const activeCount = roundResponses.length - prunable.length;
+    if (activeCount < 2) {
+        return prunable.slice(0, roundResponses.length - 2);
+    }
+
+    return prunable;
+}
+
+// Public wrappers for the private similarity functions (used by pruning)
+function calculateSimilarityPublic(text1: string, text2: string): number {
+    return calculateSimilarity(text1, text2);
+}
+
+function calculateBigramSimilarityPublic(text1: string, text2: string): number {
+    return calculateBigramSimilarity(text1, text2);
+}
+
+function stanceToNumericPublic(stance: ResponseStance): number {
+    return stanceToNumeric(stance);
+}
+
+// ============================================================================
 // Debate Findings Extraction
 // ============================================================================
 

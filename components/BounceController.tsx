@@ -135,6 +135,11 @@ export function BounceController({
                 updateBounceState({ status: 'idle' });
                 onCancel?.();
                 break;
+
+            case 'PARTICIPANT_PRUNED':
+                // Pruned participants are tracked in orchestrator state
+                // UI updates via CONSENSUS_UPDATED and ROUND_COMPLETE
+                break;
         }
     }, [bounceState.rounds, updateBounceState, onComplete, onCancel]);
 
@@ -409,6 +414,51 @@ export function BounceController({
                                             : 'translate-x-1'
                                     }`} />
                                 </button>
+                            </div>
+
+                            {/* Participant Pruning */}
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                                        Prune aligned models
+                                    </span>
+                                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                                        Drop redundant participants between rounds
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => setBounceConfig({ enablePruning: !bounceConfig.enablePruning })}
+                                    className={`w-10 h-6 rounded-full transition-colors ${
+                                        bounceConfig.enablePruning
+                                            ? 'bg-purple-500'
+                                            : 'bg-gray-300 dark:bg-gray-600'
+                                    }`}
+                                >
+                                    <div className={`w-4 h-4 bg-white rounded-full transition-transform ${
+                                        bounceConfig.enablePruning
+                                            ? 'translate-x-5'
+                                            : 'translate-x-1'
+                                    }`} />
+                                </button>
+                            </div>
+
+                            {/* Context Token Budget */}
+                            <div>
+                                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                                    Context Budget: {bounceConfig.maxContextTokens.toLocaleString()} tokens
+                                </label>
+                                <input
+                                    type="range"
+                                    min={2000}
+                                    max={32000}
+                                    step={1000}
+                                    value={bounceConfig.maxContextTokens}
+                                    onChange={(e) => setBounceConfig({ maxContextTokens: parseInt(e.target.value) })}
+                                    className="w-full"
+                                />
+                                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                                    Older responses are trimmed when context exceeds budget
+                                </p>
                             </div>
                         </div>
                     )}
