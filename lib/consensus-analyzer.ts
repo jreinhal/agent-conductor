@@ -379,6 +379,11 @@ export function identifyPrunableParticipants(
 
     const prunable: { sessionId: string; modelTitle: string; similarTo: string }[] = [];
 
+    // Index responses by session ID for O(1) lookup
+    const responseMap = new Map(
+        roundResponses.map(r => [r.participantSessionId, r])
+    );
+
     // For each pair, check if one is highly similar to another
     // We keep the first participant and mark later ones as prunable
     const kept = new Set<string>();
@@ -388,7 +393,7 @@ export function identifyPrunableParticipants(
         let similarToTitle = '';
 
         for (const keptId of kept) {
-            const keptResponse = roundResponses.find(r => r.participantSessionId === keptId);
+            const keptResponse = responseMap.get(keptId);
             if (!keptResponse) continue;
 
             const wordSim = calculateSimilarityPublic(response.content, keptResponse.content);

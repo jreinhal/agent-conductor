@@ -4,8 +4,7 @@ import { useRef, useEffect, forwardRef, useImperativeHandle, useCallback, useSta
 import { Message } from 'ai';
 import { useChat } from '@ai-sdk/react';
 import { Session } from '@/lib/types';
-import { useAgentStore } from '@/lib/store';
-import { formatKnowledgeForPrompt } from '@/lib/consensus-analyzer';
+import { useSystemPrompt } from '@/lib/useSystemPrompt';
 
 interface ChatPanelProps {
     session: Session;
@@ -44,23 +43,15 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
     onBounce,
     compact = false,
 }, ref) => {
-    const sharedContext = useAgentStore((state) => state.sharedContext);
-    const sharedKnowledge = useAgentStore((state) => state.sharedKnowledge);
+    const systemPrompt = useSystemPrompt(session);
     const scrollRef = useRef<HTMLDivElement>(null);
     const [isHovered, setIsHovered] = useState(false);
-
-    const knowledgeBlock = formatKnowledgeForPrompt(sharedKnowledge);
-    const systemParts = [
-        sharedContext ? `# SHARED PROJECT CONTEXT:\n${sharedContext}` : '',
-        knowledgeBlock,
-        session.systemPrompt || '',
-    ].filter(Boolean).join('\n\n---\n\n');
 
     const chatHook = useChat({
         api: '/api/chat',
         body: {
             model: session.modelId,
-            system: systemParts,
+            system: systemPrompt,
             config: session.config
         },
     });

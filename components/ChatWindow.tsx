@@ -4,8 +4,7 @@ import { useChat } from '@ai-sdk/react';
 import { useRef, useEffect, useState } from 'react';
 import { Message } from 'ai';
 import { Session } from '@/lib/types';
-import { useAgentStore } from '@/lib/store';
-import { formatKnowledgeForPrompt } from '@/lib/consensus-analyzer';
+import { useSystemPrompt } from '@/lib/useSystemPrompt';
 import { scanForPII, PIIFinding } from '@/lib/guardrails';
 import { logAuditEvent } from '@/lib/audit-log';
 
@@ -61,23 +60,15 @@ function ErrorDisplay({ error, onRetry }: { error: Error; onRetry: () => void })
 }
 
 export function ChatWindow({ session, onClose, onBounce, onFinish, onMessagesUpdate }: ChatWindowProps) {
-    const sharedContext = useAgentStore((state) => state.sharedContext);
-    const sharedKnowledge = useAgentStore((state) => state.sharedKnowledge);
+    const systemPrompt = useSystemPrompt(session);
     const [piiWarning, setPiiWarning] = useState<PIIFinding[] | null>(null);
     const [retryCount, setRetryCount] = useState(0);
-
-    const knowledgeBlock = formatKnowledgeForPrompt(sharedKnowledge);
-    const systemParts = [
-        sharedContext ? `# SHARED PROJECT CONTEXT:\n${sharedContext}` : '',
-        knowledgeBlock,
-        session.systemPrompt || '',
-    ].filter(Boolean).join('\n\n---\n\n');
 
     const { messages, input, handleInputChange, append, isLoading, setInput, error, reload } = useChat({
         api: '/api/chat',
         body: {
             model: session.modelId,
-            system: systemParts,
+            system: systemPrompt,
             config: session.config
         },
         onFinish: (message) => {

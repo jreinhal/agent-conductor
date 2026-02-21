@@ -169,15 +169,20 @@ Be direct about agreements and disagreements. Reference specific points from oth
     }
 
     // Budget exceeded: condense older responses, keep recent ones full
-    // Strategy: work backwards from newest, keeping full detail until budget is hit
+    // Pre-calculate token counts to avoid re-joining on every iteration
     const responseBlocks = [...fullBlocks];
-    let totalTokens = estimateTokens(responseBlocks.join('\n---\n\n')) + frameTokens;
+    const fullBlockTokens = fullBlocks.map(estimateTokens);
+    const condensedBlockTokens = condensedBlocks.map(estimateTokens);
+    const separatorTokens = estimateTokens('\n---\n\n');
+    const separatorTotal = fullBlockTokens.length > 1
+        ? (fullBlockTokens.length - 1) * separatorTokens
+        : 0;
+    let totalTokens = fullBlockTokens.reduce((a, b) => a + b, 0) + separatorTotal + frameTokens;
     const budget = maxContextTokens;
 
     for (let i = 0; i < responseBlocks.length - 1 && totalTokens > budget; i++) {
-        // Replace oldest not-yet-condensed response with condensed version
+        totalTokens = totalTokens - fullBlockTokens[i] + condensedBlockTokens[i];
         responseBlocks[i] = condensedBlocks[i];
-        totalTokens = estimateTokens(responseBlocks.join('\n---\n\n')) + frameTokens;
     }
 
     return promptFrame.replace('{RESPONSES}', responseBlocks.join('\n---\n\n'));
