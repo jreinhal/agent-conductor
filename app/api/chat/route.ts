@@ -1,4 +1,4 @@
-import { streamText } from 'ai';
+import { streamText, UIMessage, convertToModelMessages } from 'ai';
 import { getModel } from '@/lib/ai';
 
 export const maxDuration = 60; // Allow 60 seconds for generation
@@ -96,7 +96,11 @@ function classifyError(error: unknown): { code: string; message: string; status:
 export async function POST(req: Request) {
     try {
         const body = await req.json();
-        const { messages, model, system } = body;
+        const { messages, model, system } = body as {
+            messages?: UIMessage[];
+            model?: string;
+            system?: string;
+        };
 
         // Validate required fields
         if (!messages || !Array.isArray(messages)) {
@@ -117,15 +121,17 @@ export async function POST(req: Request) {
             );
         }
 
+        const modelMessages = await convertToModelMessages(messages);
+
         const result = await streamText({
             model: selectedModel,
-            messages,
+            messages: modelMessages,
             system: system || "You are a helpful AI assistant in the Agent Conductor system. Be concise and precise.",
             // Add abort signal for better timeout handling
             abortSignal: AbortSignal.timeout(55000), // 55s to leave buffer before maxDuration
         });
 
-        return result.toDataStreamResponse();
+        return result.toUIMessageStreamResponse();
 
     } catch (error) {
         console.error('[API /chat] Error:', error);
