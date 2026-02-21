@@ -10,6 +10,7 @@ interface ChatPanelProps {
     session: Session;
     onClose?: () => void;
     onMessagesUpdate?: (messages: Message[]) => void;
+    onLoadingChange?: (sessionId: string, isLoading: boolean) => void;
     onBounce?: (content: string) => void;
     compact?: boolean;
 }
@@ -36,10 +37,27 @@ const getProviderFromModel = (modelId: string): string => {
     return 'local';
 };
 
+function extractMessageText(message: Message): string {
+    const legacyContent = (message as unknown as { content?: unknown }).content;
+    if (typeof legacyContent === 'string') return legacyContent;
+
+    const parts = (message as unknown as {
+        parts?: Array<{ type?: string; text?: string }>;
+    }).parts;
+
+    if (!Array.isArray(parts)) return '';
+
+    return parts
+        .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+        .map((part) => part.text as string)
+        .join('');
+}
+
 export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
     session,
     onClose,
     onMessagesUpdate,
+    onLoadingChange,
     onBounce,
     compact = false,
 }, ref) => {
@@ -56,14 +74,21 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
         },
     });
 
-    const { messages, isLoading, error, reload } = chatHook;
+    const {
+        messages,
+        status,
+        error,
+        regenerate,
+        sendMessage: sendChatMessage,
+    } = chatHook;
+    const isLoading = status === 'submitted' || status === 'streaming';
 
     // Stable sendMessage function
     const sendMessage = useCallback((content: string) => {
-        if (chatHook.append && typeof chatHook.append === 'function') {
-            chatHook.append({ role: 'user', content });
-        }
-    }, [chatHook]);
+        const text = content.trim();
+        if (!text) return;
+        sendChatMessage({ text });
+    }, [sendChatMessage]);
 
     // Expose methods to parent
     useImperativeHandle(ref, () => ({
@@ -73,6 +98,14 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
 
     // Track last reported message count to avoid infinite loops
     const lastReportedCountRef = useRef(0);
+
+    // Report loading state to parent so global input can remain reactive.
+    useEffect(() => {
+        onLoadingChange?.(session.id, isLoading);
+        return () => {
+            onLoadingChange?.(session.id, false);
+        };
+    }, [session.id, isLoading, onLoadingChange]);
 
     // Report messages to parent only when message count changes
     useEffect(() => {
@@ -130,7 +163,7 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
                 <div className="flex items-center gap-1">
                     {error && (
                         <button
-                            onClick={() => reload()}
+                            onClick={() => regenerate()}
                             className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg hover:scale-105 active:scale-95"
                             style={{
                                 transition: 'transform 250ms cubic-bezier(0.175, 0.885, 0.32, 1.1), background-color 150ms cubic-bezier(0.25, 0.1, 0.25, 1)',
@@ -215,11 +248,11 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
                                 transition: 'background-color 200ms cubic-bezier(0.25, 0.1, 0.25, 1)'
                             }}
                         >
-                            <div className="whitespace-pre-wrap break-words leading-relaxed">{m.content}</div>
+                            <div className="whitespace-pre-wrap break-words leading-relaxed">{extractMessageText(m)}</div>
                             {/* Bounce button for assistant messages - shows on hover */}
-                            {m.role === 'assistant' && onBounce && (
+                            {m.role === 'assistant' && onBounce && extractMessageText(m).trim() && (
                                 <button
-                                    onClick={() => onBounce(m.content)}
+                                    onClick={() => onBounce(extractMessageText(m))}
                                     className="absolute -right-2 -bottom-2 opacity-0 group-hover:opacity-100 p-2 bg-purple-500 hover:bg-purple-600 text-white rounded-full shadow-lg hover:scale-105 active:scale-95 hover:shadow-purple-500/25"
                                     style={{
                                         transition: 'opacity 200ms cubic-bezier(0.25, 0.1, 0.25, 1), transform 250ms cubic-bezier(0.175, 0.885, 0.32, 1.1), background-color 150ms cubic-bezier(0.25, 0.1, 0.25, 1)',

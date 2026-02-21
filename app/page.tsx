@@ -44,6 +44,7 @@ export default function Page() {
 
     // Track messages per session for consensus
     const [sessionMessages, setSessionMessages] = useState<Map<string, Message[]>>(new Map());
+    const [loadingSessionIds, setLoadingSessionIds] = useState<Set<string>>(new Set());
 
     // Zustand store
     const sessions = useAgentStore((state) => state.sessions);
@@ -88,13 +89,17 @@ export default function Page() {
         });
     }, []);
 
-    // Check if any panel is loading
-    const isAnyLoading = useCallback(() => {
-        let loading = false;
-        panelRefs.current.forEach((ref) => {
-            if (ref.isLoading) loading = true;
+    // Keep global loading state in sync with panel loading updates.
+    const handleLoadingChange = useCallback((sessionId: string, isLoading: boolean) => {
+        setLoadingSessionIds((prev) => {
+            const next = new Set(prev);
+            if (isLoading) {
+                next.add(sessionId);
+            } else {
+                next.delete(sessionId);
+            }
+            return next;
         });
-        return loading;
     }, []);
 
     // Handle message updates from panels
@@ -375,6 +380,7 @@ export default function Page() {
                                             clearUsage(session.id);
                                         }}
                                         onMessagesUpdate={(msgs) => handleMessagesUpdate(session.id, msgs)}
+                                        onLoadingChange={handleLoadingChange}
                                         onBounce={handleBounce}
                                         compact={sessions.length > 2}
                                     />
@@ -400,6 +406,7 @@ export default function Page() {
                                             clearUsage(session.id);
                                         }}
                                         onMessagesUpdate={(msgs) => handleMessagesUpdate(session.id, msgs)}
+                                        onLoadingChange={handleLoadingChange}
                                         onBounce={handleBounce}
                                     />
                                 </div>
@@ -431,6 +438,7 @@ export default function Page() {
                                                 clearUsage(session.id);
                                             }}
                                             onMessagesUpdate={(msgs) => handleMessagesUpdate(session.id, msgs)}
+                                            onLoadingChange={handleLoadingChange}
                                             onBounce={handleBounce}
                                             compact
                                         />
@@ -452,7 +460,7 @@ export default function Page() {
                         onSelectWorkflow={handleSelectWorkflow}
                         onSynthesize={handleSynthesize}
                         onClearAll={handleClearAll}
-                        isLoading={isAnyLoading()}
+                        isLoading={loadingSessionIds.size > 0}
                         sessionCount={sessions.length}
                     />
                 </div>
