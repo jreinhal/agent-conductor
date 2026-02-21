@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
     MessageCircle,
     ThumbsUp,
@@ -21,8 +21,11 @@ import {
     BounceResponse,
     ResponseStance,
     ConsensusAnalysis,
+    DebateFindings as DebateFindingsType,
 } from '@/lib/bounce-types';
 import { formatStance, getStanceEmoji } from '@/lib/bounce-prompts';
+import { extractDebateFindings } from '@/lib/consensus-analyzer';
+import { DebateFindings } from './DebateFindings';
 
 interface BouncePanelProps {
     /** Maximum height before scrolling */
@@ -31,8 +34,15 @@ interface BouncePanelProps {
 
 export function BouncePanel({ maxHeight = '600px' }: BouncePanelProps) {
     const bounceState = useBounceState();
+    const [findingsDismissed, setFindingsDismissed] = useState(false);
 
     const { rounds, consensus, finalAnswer, originalTopic, status } = bounceState;
+
+    const findings = useMemo<DebateFindingsType | null>(() => {
+        if (status !== 'complete' || !consensus || rounds.length === 0) return null;
+        const debateId = `bounce-${bounceState.startedAt}`;
+        return extractDebateFindings(debateId, originalTopic, rounds, consensus);
+    }, [status, consensus, rounds, originalTopic, bounceState.startedAt]);
 
     if (rounds.length === 0 && !finalAnswer) {
         return null;
@@ -74,6 +84,16 @@ export function BouncePanel({ maxHeight = '600px' }: BouncePanelProps) {
                         answer={finalAnswer}
                         consensus={consensus}
                     />
+                )}
+
+                {/* Debate Findings - add to knowledge base */}
+                {findings && !findingsDismissed && findings.agreements.length > 0 && (
+                    <div className="p-4">
+                        <DebateFindings
+                            findings={findings}
+                            onDismiss={() => setFindingsDismissed(true)}
+                        />
+                    </div>
                 )}
 
                 {/* Loading state */}

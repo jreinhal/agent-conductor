@@ -13,6 +13,8 @@ import {
     ConsensusRecommendation,
     ResponseStance,
     BounceRound,
+    DebateFindings,
+    SharedKnowledgeEntry,
 } from './bounce-types';
 
 // ============================================================================
@@ -358,6 +360,68 @@ export function updateConsensusWithTrend(
         trend,
         recommendation,
     };
+}
+
+// ============================================================================
+// Debate Findings Extraction
+// ============================================================================
+
+/**
+ * Extract structured findings from a completed debate.
+ * Converts consensus analysis into SharedKnowledgeEntry items
+ * that can be merged into the shared context.
+ */
+export function extractDebateFindings(
+    debateId: string,
+    topic: string,
+    rounds: BounceRound[],
+    finalConsensus: ConsensusAnalysis,
+): DebateFindings {
+    const allResponses = rounds.flatMap(r => r.responses);
+    const participantNames = [...new Set(allResponses.map(r => r.modelTitle))];
+
+    const agreements: SharedKnowledgeEntry[] = finalConsensus.agreedPoints.map((point, idx) => ({
+        id: `${debateId}-finding-${idx}`,
+        debateTopic: topic,
+        finding: point,
+        confidence: finalConsensus.score,
+        participants: participantNames,
+        capturedAt: Date.now(),
+        sourceDebateId: debateId,
+    }));
+
+    return {
+        agreements,
+        disputes: finalConsensus.disputedPoints,
+        consensusScore: finalConsensus.score,
+        topic,
+        debateId,
+    };
+}
+
+/**
+ * Format shared knowledge entries into a text block
+ * suitable for injection into system prompts.
+ */
+export function formatKnowledgeForPrompt(entries: SharedKnowledgeEntry[]): string {
+    if (entries.length === 0) return '';
+
+    const grouped = new Map<string, SharedKnowledgeEntry[]>();
+    for (const entry of entries) {
+        const existing = grouped.get(entry.debateTopic) || [];
+        existing.push(entry);
+        grouped.set(entry.debateTopic, existing);
+    }
+
+    const sections: string[] = [];
+    for (const [topic, findings] of grouped) {
+        const lines = findings.map(
+            f => `- ${f.finding} (${Math.round(f.confidence * 100)}% consensus, ${f.participants.join(', ')})`
+        );
+        sections.push(`## ${topic}\n${lines.join('\n')}`);
+    }
+
+    return `# DEBATE FINDINGS (accumulated knowledge)\n\n${sections.join('\n\n')}`;
 }
 
 // ============================================================================

@@ -5,6 +5,7 @@ import { Message } from 'ai';
 import { useChat } from '@ai-sdk/react';
 import { Session } from '@/lib/types';
 import { useAgentStore } from '@/lib/store';
+import { formatKnowledgeForPrompt } from '@/lib/consensus-analyzer';
 
 interface ChatPanelProps {
     session: Session;
@@ -44,14 +45,22 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
     compact = false,
 }, ref) => {
     const sharedContext = useAgentStore((state) => state.sharedContext);
+    const sharedKnowledge = useAgentStore((state) => state.sharedKnowledge);
     const scrollRef = useRef<HTMLDivElement>(null);
     const [isHovered, setIsHovered] = useState(false);
+
+    const knowledgeBlock = formatKnowledgeForPrompt(sharedKnowledge);
+    const systemParts = [
+        sharedContext ? `# SHARED PROJECT CONTEXT:\n${sharedContext}` : '',
+        knowledgeBlock,
+        session.systemPrompt || '',
+    ].filter(Boolean).join('\n\n---\n\n');
 
     const chatHook = useChat({
         api: '/api/chat',
         body: {
             model: session.modelId,
-            system: `${sharedContext ? `# SHARED PROJECT CONTEXT:\n${sharedContext}\n\n---\n\n` : ''}${session.systemPrompt || ''}`,
+            system: systemParts,
             config: session.config
         },
     });

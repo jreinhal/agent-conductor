@@ -244,6 +244,39 @@ export type BounceAction =
     | { type: 'UPDATE_CONFIG'; config: Partial<BounceConfig> };
 
 // ============================================================================
+// Shared Knowledge (extracted from debates)
+// ============================================================================
+
+export interface SharedKnowledgeEntry {
+    id: string;
+    /** The topic of the debate this was extracted from */
+    debateTopic: string;
+    /** Agreed-upon finding */
+    finding: string;
+    /** How confident the models were (consensus score at time of extraction) */
+    confidence: number;
+    /** Which models participated */
+    participants: string[];
+    /** When this was captured */
+    capturedAt: number;
+    /** Source debate session ID */
+    sourceDebateId: string;
+}
+
+export interface DebateFindings {
+    /** Points all models agreed on */
+    agreements: SharedKnowledgeEntry[];
+    /** Points that remained disputed */
+    disputes: string[];
+    /** The overall consensus score */
+    consensusScore: number;
+    /** The debate topic */
+    topic: string;
+    /** Source debate session ID */
+    debateId: string;
+}
+
+// ============================================================================
 // Bounce Metrics (for analytics)
 // ============================================================================
 
