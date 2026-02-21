@@ -4,7 +4,7 @@ import { useChat } from '@ai-sdk/react';
 import { useRef, useEffect, useState } from 'react';
 import { Message } from 'ai';
 import { Session } from '@/lib/types';
-import { useAgentStore } from '@/lib/store';
+import { useSystemPrompt } from '@/lib/useSystemPrompt';
 import { scanForPII, PIIFinding } from '@/lib/guardrails';
 import { logAuditEvent } from '@/lib/audit-log';
 
@@ -60,7 +60,7 @@ function ErrorDisplay({ error, onRetry }: { error: Error; onRetry: () => void })
 }
 
 export function ChatWindow({ session, onClose, onBounce, onFinish, onMessagesUpdate }: ChatWindowProps) {
-    const sharedContext = useAgentStore((state) => state.sharedContext);
+    const systemPrompt = useSystemPrompt(session);
     const [piiWarning, setPiiWarning] = useState<PIIFinding[] | null>(null);
     const [retryCount, setRetryCount] = useState(0);
 
@@ -68,8 +68,7 @@ export function ChatWindow({ session, onClose, onBounce, onFinish, onMessagesUpd
         api: '/api/chat',
         body: {
             model: session.modelId,
-            system: `${sharedContext ? `# SHARED PROJECT CONTEXT:\n${sharedContext}\n\n---\n\n` : ''}${session.systemPrompt || ''}`,
-            // Pass model config for reasoning/thinking
+            system: systemPrompt,
             config: session.config
         },
         onFinish: (message) => {

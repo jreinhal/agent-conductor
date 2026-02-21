@@ -13,6 +13,8 @@ import {
     ConsensusRecommendation,
     ResponseStance,
     BounceRound,
+    DebateFindings,
+    SharedKnowledgeEntry,
 } from './bounce-types';
 
 // ============================================================================
@@ -358,6 +360,152 @@ export function updateConsensusWithTrend(
         trend,
         recommendation,
     };
+}
+
+// ============================================================================
+// Participant Pruning
+// ============================================================================
+
+/**
+ * Identify participants whose responses are highly similar to another participant.
+ * These participants are not adding signal and can be pruned to reduce costs.
+ * Returns session IDs of participants to prune (never prunes below 2 active).
+ */
+export function identifyPrunableParticipants(
+    roundResponses: BounceResponse[],
+    threshold: number,
+): { sessionId: string; modelTitle: string; similarTo: string }[] {
+    if (roundResponses.length <= 2) return [];
+
+    const prunable: { sessionId: string; modelTitle: string; similarTo: string }[] = [];
+
+    // Index responses by session ID for O(1) lookup
+    const responseMap = new Map(
+        roundResponses.map(r => [r.participantSessionId, r])
+    );
+
+    // For each pair, check if one is highly similar to another
+    // We keep the first participant and mark later ones as prunable
+    const kept = new Set<string>();
+
+    for (const response of roundResponses) {
+        let isSimilarToKept = false;
+        let similarToTitle = '';
+
+        for (const keptId of kept) {
+            const keptResponse = responseMap.get(keptId);
+            if (!keptResponse) continue;
+
+            const wordSim = calculateSimilarityPublic(response.content, keptResponse.content);
+            const bigramSim = calculateBigramSimilarityPublic(response.content, keptResponse.content);
+            const combined = wordSim * 0.6 + bigramSim * 0.4;
+
+            // Also check stance alignment
+            const stanceDiff = Math.abs(
+                stanceToNumericPublic(response.stance) - stanceToNumericPublic(keptResponse.stance)
+            );
+
+            // High content similarity AND similar stance = redundant
+            if (combined >= threshold && stanceDiff <= 0.15) {
+                isSimilarToKept = true;
+                similarToTitle = keptResponse.modelTitle;
+                break;
+            }
+        }
+
+        if (isSimilarToKept) {
+            prunable.push({
+                sessionId: response.participantSessionId,
+                modelTitle: response.modelTitle,
+                similarTo: similarToTitle,
+            });
+        } else {
+            kept.add(response.participantSessionId);
+        }
+    }
+
+    // Never prune below 2 active participants
+    const activeCount = roundResponses.length - prunable.length;
+    if (activeCount < 2) {
+        return prunable.slice(0, roundResponses.length - 2);
+    }
+
+    return prunable;
+}
+
+// Public wrappers for the private similarity functions (used by pruning)
+function calculateSimilarityPublic(text1: string, text2: string): number {
+    return calculateSimilarity(text1, text2);
+}
+
+function calculateBigramSimilarityPublic(text1: string, text2: string): number {
+    return calculateBigramSimilarity(text1, text2);
+}
+
+function stanceToNumericPublic(stance: ResponseStance): number {
+    return stanceToNumeric(stance);
+}
+
+// ============================================================================
+// Debate Findings Extraction
+// ============================================================================
+
+/**
+ * Extract structured findings from a completed debate.
+ * Converts consensus analysis into SharedKnowledgeEntry items
+ * that can be merged into the shared context.
+ */
+export function extractDebateFindings(
+    debateId: string,
+    topic: string,
+    rounds: BounceRound[],
+    finalConsensus: ConsensusAnalysis,
+): DebateFindings {
+    const allResponses = rounds.flatMap(r => r.responses);
+    const participantNames = [...new Set(allResponses.map(r => r.modelTitle))];
+
+    const agreements: SharedKnowledgeEntry[] = finalConsensus.agreedPoints.map((point, idx) => ({
+        id: `${debateId}-finding-${idx}`,
+        debateTopic: topic,
+        finding: point,
+        confidence: finalConsensus.score,
+        participants: participantNames,
+        capturedAt: Date.now(),
+        sourceDebateId: debateId,
+    }));
+
+    return {
+        agreements,
+        disputes: finalConsensus.disputedPoints,
+        consensusScore: finalConsensus.score,
+        topic,
+        debateId,
+    };
+}
+
+/**
+ * Format shared knowledge entries into a text block
+ * suitable for injection into system prompts.
+ */
+export function formatKnowledgeForPrompt(entries: SharedKnowledgeEntry[]): string {
+    if (entries.length === 0) return '';
+
+    const grouped = new Map<string, SharedKnowledgeEntry[]>();
+    for (const entry of entries) {
+        const existing = grouped.get(entry.debateTopic) || [];
+        existing.push(entry);
+        grouped.set(entry.debateTopic, existing);
+    }
+
+    const sections: string[] = [];
+    for (const [topic, findings] of grouped) {
+        const lines = findings.map(
+            f => `- ${f.finding} (${Math.round(f.confidence * 100)}% consensus, ${f.participants.join(', ')})`
+        );
+        sections.push(`## ${topic}\n${lines.join('\n')}`);
+    }
+
+    return `# DEBATE FINDINGS (accumulated knowledge)\n\n${sections.join('\n\n')}`;
 }
 
 // ============================================================================

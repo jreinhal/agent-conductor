@@ -13,6 +13,7 @@ import {
     DEFAULT_BOUNCE_CONFIG,
     ConsensusAnalysis,
     SerializedBounceSession,
+    SharedKnowledgeEntry,
 } from './bounce-types';
 
 // Extended session with messages
@@ -63,6 +64,9 @@ interface AgentConductorState {
     // Shared context
     sharedContext: string;
 
+    // Shared knowledge (accumulated from debates)
+    sharedKnowledge: SharedKnowledgeEntry[];
+
     // Workflow
     workflow: WorkflowState;
 
@@ -80,6 +84,11 @@ interface AgentConductorState {
 
     // Context actions
     setSharedContext: (context: string) => void;
+
+    // Shared knowledge actions
+    addKnowledgeEntries: (entries: SharedKnowledgeEntry[]) => void;
+    removeKnowledgeEntry: (id: string) => void;
+    clearKnowledge: () => void;
 
     // Workflow actions
     setActiveWorkflow: (workflowId: string | null) => void;
@@ -117,6 +126,7 @@ export const useAgentStore = create<AgentConductorState>()(
             // Initial state
             sessions: [],
             sharedContext: '',
+            sharedKnowledge: [],
             workflow: {
                 activeWorkflowId: null,
                 stepIndex: 0,
@@ -159,6 +169,22 @@ export const useAgentStore = create<AgentConductorState>()(
 
             // Context actions
             setSharedContext: (context) => set({ sharedContext: context }),
+
+            // Shared knowledge actions
+            addKnowledgeEntries: (entries) => set((state) => ({
+                sharedKnowledge: [
+                    ...state.sharedKnowledge,
+                    ...entries.filter(
+                        e => !state.sharedKnowledge.some(existing => existing.id === e.id)
+                    ),
+                ],
+            })),
+
+            removeKnowledgeEntry: (id) => set((state) => ({
+                sharedKnowledge: state.sharedKnowledge.filter(e => e.id !== id),
+            })),
+
+            clearKnowledge: () => set({ sharedKnowledge: [] }),
 
             // Workflow actions
             setActiveWorkflow: (workflowId) => set((state) => ({
@@ -311,6 +337,7 @@ export const useAgentStore = create<AgentConductorState>()(
             partialize: (state) => ({
                 // Only persist these fields
                 sharedContext: state.sharedContext,
+                sharedKnowledge: state.sharedKnowledge,
                 workflow: {
                     customWorkflows: state.workflow.customWorkflows,
                 },
@@ -322,6 +349,7 @@ export const useAgentStore = create<AgentConductorState>()(
 // Selector hooks for better performance
 export const useSessions = () => useAgentStore((state) => state.sessions);
 export const useSharedContext = () => useAgentStore((state) => state.sharedContext);
+export const useSharedKnowledge = () => useAgentStore((state) => state.sharedKnowledge);
 export const useWorkflow = () => useAgentStore((state) => state.workflow);
 export const useUI = () => useAgentStore((state) => state.ui);
 export const useDebate = () => useAgentStore((state) => state.debate);

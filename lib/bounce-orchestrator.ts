@@ -36,6 +36,7 @@ import {
 import {
     analyzeConsensus,
     updateConsensusWithTrend,
+    identifyPrunableParticipants,
 } from './consensus-analyzer';
 
 // ============================================================================
@@ -317,6 +318,31 @@ export class BounceOrchestrator {
             this.emit({ type: 'ROUND_COMPLETE', round });
             this.emit({ type: 'CONSENSUS_UPDATED', consensus: updatedConsensus });
 
+            // Prune aligned participants if enabled
+            if (config.enablePruning && config.participants.length > 2) {
+                const prunable = identifyPrunableParticipants(
+                    roundResponses,
+                    config.pruningThreshold
+                );
+
+                for (const p of prunable) {
+                    config.participants = config.participants.filter(
+                        pp => pp.sessionId !== p.sessionId
+                    );
+                    this.state.prunedParticipants.push({
+                        sessionId: p.sessionId,
+                        modelTitle: p.modelTitle,
+                        prunedAtRound: this.state.currentRound,
+                    });
+                    this.emit({
+                        type: 'PARTICIPANT_PRUNED',
+                        sessionId: p.sessionId,
+                        modelTitle: p.modelTitle,
+                        reason: `Aligned with ${p.similarTo}`,
+                    });
+                }
+            }
+
             // Check if we should stop
             if (this.shouldStopDebate(updatedConsensus)) {
                 break;
@@ -361,7 +387,8 @@ export class BounceOrchestrator {
                 : buildDebatePromptWithHistory(
                     this.state.originalTopic,
                     allPreviousResponses,
-                    this.state.currentRound
+                    this.state.currentRound,
+                    this.state.config.maxContextTokens
                 );
 
             const systemPrompt = getDebateParticipantSystemPrompt(

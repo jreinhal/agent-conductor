@@ -4,7 +4,7 @@ import { useRef, useEffect, forwardRef, useImperativeHandle, useCallback, useSta
 import { Message } from 'ai';
 import { useChat } from '@ai-sdk/react';
 import { Session } from '@/lib/types';
-import { useAgentStore } from '@/lib/store';
+import { useSystemPrompt } from '@/lib/useSystemPrompt';
 
 interface ChatPanelProps {
     session: Session;
@@ -43,7 +43,7 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
     onBounce,
     compact = false,
 }, ref) => {
-    const sharedContext = useAgentStore((state) => state.sharedContext);
+    const systemPrompt = useSystemPrompt(session);
     const scrollRef = useRef<HTMLDivElement>(null);
     const [isHovered, setIsHovered] = useState(false);
 
@@ -51,7 +51,7 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
         api: '/api/chat',
         body: {
             model: session.modelId,
-            system: `${sharedContext ? `# SHARED PROJECT CONTEXT:\n${sharedContext}\n\n---\n\n` : ''}${session.systemPrompt || ''}`,
+            system: systemPrompt,
             config: session.config
         },
     });
