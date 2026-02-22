@@ -279,7 +279,10 @@ export class BounceOrchestrator {
 
                         // Pause between responses if configured
                         if (config.pauseBetweenResponses > 0 && i < config.participants.length - 1) {
-                            await this.sleep(config.pauseBetweenResponses);
+                            const pauseMs = this.getAdaptivePauseBetweenResponses(response.durationMs);
+                            if (pauseMs > 0) {
+                                await this.sleep(pauseMs);
+                            }
                         }
                     }
                 }
@@ -312,10 +315,26 @@ export class BounceOrchestrator {
                 minimumStableRounds: config.minimumStableRounds,
             });
 
+            const influenceBySession = new Map(
+                updatedConsensus.influence.modelBreakdown.map((entry) => [entry.sessionId, entry])
+            );
+            const annotatedResponses = roundResponses.map((response) => {
+                const influence = influenceBySession.get(response.participantSessionId);
+                if (!influence) return response;
+                return {
+                    ...response,
+                    userWeight: influence.userWeight,
+                    reliabilityWeight: influence.reliabilityWeight,
+                    confidenceModifier: influence.confidenceModifier,
+                    rawInfluence: influence.rawInfluence,
+                    effectiveInfluence: influence.effectiveShare,
+                };
+            });
+
             // Record the round
             const round: BounceRound = {
                 roundNumber: this.state.currentRound,
-                responses: roundResponses,
+                responses: annotatedResponses,
                 consensusAtEnd: updatedConsensus,
                 timestamp: Date.now(),
             };
@@ -418,6 +437,12 @@ export class BounceOrchestrator {
             const keyPoints = extractKeyPoints(content);
             const { agreements, disagreements } = extractAgreementsAndDisagreements(content);
 
+            const confidence = this.extractConfidence(content);
+            const userWeight = this.clampUserWeight(participant.userWeight);
+            const reliabilityWeight = this.clampReliabilityWeight(participant.reliabilityWeight ?? 1);
+            const confidenceModifier = this.toConfidenceModifier(confidence);
+            const rawInfluence = userWeight * reliabilityWeight * confidenceModifier;
+
             const response: BounceResponse = {
                 participantSessionId: participant.sessionId,
                 modelId: participant.modelId,
@@ -427,7 +452,11 @@ export class BounceOrchestrator {
                 keyPoints,
                 agreements,
                 disagreements,
-                confidence: this.extractConfidence(content),
+                confidence,
+                userWeight,
+                reliabilityWeight,
+                confidenceModifier,
+                rawInfluence,
                 durationMs,
                 timestamp: Date.now(),
             };
@@ -582,6 +611,27 @@ export class BounceOrchestrator {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
+    private getAdaptivePauseBetweenResponses(lastDurationMs: number): number {
+        const basePauseMs = Math.max(0, this.state.config.pauseBetweenResponses);
+        if (basePauseMs <= 0) return 0;
+
+        if (!Number.isFinite(lastDurationMs) || lastDurationMs <= 0) {
+            return Math.min(basePauseMs, 160);
+        }
+
+        if (lastDurationMs <= 4_000) {
+            return Math.min(basePauseMs, 100);
+        }
+        if (lastDurationMs <= 8_000) {
+            return Math.min(basePauseMs, 180);
+        }
+        if (lastDurationMs <= 15_000) {
+            return Math.min(basePauseMs, 280);
+        }
+
+        return basePauseMs;
+    }
+
     private extractConfidence(content: string): number {
         const lower = content.toLowerCase();
 
@@ -614,6 +664,21 @@ export class BounceOrchestrator {
         }
 
         return 0.6; // Default moderate confidence
+    }
+
+    private toConfidenceModifier(confidence: number): number {
+        const normalized = Math.max(0, Math.min(1, confidence));
+        return 0.55 + (normalized * 0.30);
+    }
+
+    private clampUserWeight(weight: number | undefined): number {
+        if (!Number.isFinite(weight as number)) return 3;
+        return Math.max(1, Math.min(5, Math.round(Number(weight))));
+    }
+
+    private clampReliabilityWeight(weight: number): number {
+        if (!Number.isFinite(weight)) return 1;
+        return Math.max(0.5, Math.min(1.5, weight));
     }
 
     /**

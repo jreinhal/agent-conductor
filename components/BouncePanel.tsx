@@ -209,6 +209,23 @@ function ResponseDisplay({ response }: { response: BounceResponse }) {
                 </div>
             </div>
 
+            {(typeof response.userWeight === 'number' || typeof response.effectiveInfluence === 'number') && (
+                <div className="mb-2 flex flex-wrap gap-2 text-[11px] text-[color:var(--ac-text-muted)]">
+                    <span className="ac-badge px-2 py-0.5 rounded">
+                        weight {typeof response.userWeight === 'number' ? response.userWeight : 3}
+                    </span>
+                    <span className="ac-badge px-2 py-0.5 rounded">
+                        reliability {typeof response.reliabilityWeight === 'number' ? response.reliabilityWeight.toFixed(2) : '1.00'}
+                    </span>
+                    <span className="ac-badge px-2 py-0.5 rounded">
+                        conf-mod {typeof response.confidenceModifier === 'number' ? response.confidenceModifier.toFixed(2) : '0.73'}
+                    </span>
+                    <span className="ac-badge px-2 py-0.5 rounded">
+                        influence {typeof response.effectiveInfluence === 'number' ? `${Math.round(response.effectiveInfluence * 100)}%` : 'pending'}
+                    </span>
+                </div>
+            )}
+
             {/* Content */}
             <div className="text-sm text-[color:var(--ac-text-dim)] whitespace-pre-wrap leading-relaxed">
                 {response.content}
@@ -291,6 +308,14 @@ function FinalAnswerDisplay({
             {consensus && (
                 <div className="px-4 pb-4">
                     <div className="ac-soft-surface p-3 rounded-lg">
+                        <div className="mb-2 grid grid-cols-2 gap-2 text-xs text-[color:var(--ac-text-muted)]">
+                            <span className="ac-badge px-2 py-1 rounded">
+                                weighted support {Math.round(consensus.influence.weightedSupportRatio * 100)}%
+                            </span>
+                            <span className="ac-badge px-2 py-1 rounded">
+                                gates: {consensus.influence.unweightedGatePassed ? 'unweighted-ok' : 'unweighted-pending'} / {consensus.influence.weightedGatePassed ? 'weighted-ok' : 'weighted-pending'}
+                            </span>
+                        </div>
                         {consensus.agreedPoints.length > 0 && (
                             <div className="mb-2">
                                 <div className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400 mb-1">

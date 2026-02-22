@@ -193,6 +193,12 @@ const DEFAULT_OPTIONS: Required<ConsensusAnalysisOptions> = {
     minimumStableRounds: 2,
 };
 
+const MAX_MODEL_INFLUENCE_SHARE = 0.4;
+const DEFAULT_USER_WEIGHT = 3;
+const DEFAULT_RELIABILITY_WEIGHT = 1;
+const MIN_CONFIDENCE_MODIFIER = 0.55;
+const MAX_CONFIDENCE_MODIFIER = 0.85;
+
 function toProtocolStance(stance: ResponseStance): Stance {
     switch (stance) {
         case 'strongly_agree':
@@ -379,6 +385,167 @@ function extractProposalConvergence(responses: BounceResponse[]): {
     };
 }
 
+function stanceToInfluenceValue(stance: ResponseStance): number {
+    switch (stance) {
+        case 'strongly_agree':
+            return 1;
+        case 'agree':
+            return 0.75;
+        case 'refine':
+            return 0.4;
+        case 'synthesize':
+            return 0.35;
+        case 'neutral':
+            return 0;
+        case 'disagree':
+            return -0.75;
+        case 'strongly_disagree':
+            return -1;
+        default:
+            return 0;
+    }
+}
+
+function clampConfidenceModifier(value: number): number {
+    if (!Number.isFinite(value)) {
+        return 0.55 + (0.6 * 0.30);
+    }
+    return Math.max(MIN_CONFIDENCE_MODIFIER, Math.min(MAX_CONFIDENCE_MODIFIER, value));
+}
+
+function clampUserWeight(value: number | undefined): number {
+    if (!Number.isFinite(value as number)) return DEFAULT_USER_WEIGHT;
+    return Math.max(1, Math.min(5, Math.round(Number(value))));
+}
+
+function clampReliabilityWeight(value: number | undefined): number {
+    if (!Number.isFinite(value as number)) return DEFAULT_RELIABILITY_WEIGHT;
+    return Math.max(0.5, Math.min(1.5, Number(value)));
+}
+
+function normalizeSharesWithCap(rawWeights: number[], maxShare: number): number[] {
+    if (rawWeights.length === 0) return [];
+
+    const safeWeights = rawWeights.map((value) => (Number.isFinite(value) && value > 0 ? value : 0));
+    const sum = safeWeights.reduce((acc, value) => acc + value, 0);
+    if (sum <= 0) {
+        const equal = 1 / rawWeights.length;
+        return rawWeights.map(() => equal);
+    }
+
+    const shares = Array(rawWeights.length).fill(0);
+    const remainingIndices = new Set(rawWeights.map((_, idx) => idx));
+    let remainingWeight = sum;
+    let remainingShare = 1;
+
+    // Ensure the cap is feasible for current participant count.
+    const cap = Math.max(maxShare, 1 / rawWeights.length);
+
+    while (remainingIndices.size > 0) {
+        let clampedInPass = false;
+        for (const idx of Array.from(remainingIndices)) {
+            const projected = (safeWeights[idx] / remainingWeight) * remainingShare;
+            if (projected > cap) {
+                shares[idx] = cap;
+                remainingShare -= cap;
+                remainingWeight -= safeWeights[idx];
+                remainingIndices.delete(idx);
+                clampedInPass = true;
+            }
+        }
+
+        if (!clampedInPass) {
+            for (const idx of remainingIndices) {
+                shares[idx] = (safeWeights[idx] / remainingWeight) * remainingShare;
+            }
+            break;
+        }
+
+        if (remainingShare <= 0 || remainingWeight <= 0) {
+            break;
+        }
+    }
+
+    return shares;
+}
+
+function computeInfluenceBreakdown(
+    responses: BounceResponse[],
+    threshold: number,
+): ConsensusAnalysis['influence'] {
+    if (responses.length === 0) {
+        return {
+            weightedSupportScore: 0,
+            weightedSupportRatio: 0,
+            unweightedGatePassed: false,
+            weightedGatePassed: false,
+            modelBreakdown: [],
+        };
+    }
+
+    const breakdown = responses.map((response) => {
+        const userWeight = clampUserWeight(response.userWeight);
+        const reliabilityWeight = clampReliabilityWeight(response.reliabilityWeight);
+        const inferredModifier = MIN_CONFIDENCE_MODIFIER + (Math.max(0, Math.min(1, response.confidence)) * (MAX_CONFIDENCE_MODIFIER - MIN_CONFIDENCE_MODIFIER));
+        const confidenceModifier = clampConfidenceModifier(
+            typeof response.confidenceModifier === 'number' ? response.confidenceModifier : inferredModifier
+        );
+        const stanceValue = stanceToInfluenceValue(response.stance);
+        const rawInfluence = Number.isFinite(response.rawInfluence as number)
+            ? Math.max(0, Number(response.rawInfluence))
+            : userWeight * reliabilityWeight * confidenceModifier;
+
+        return {
+            sessionId: response.participantSessionId,
+            modelId: response.modelId,
+            modelTitle: response.modelTitle,
+            userWeight,
+            reliabilityWeight,
+            confidenceModifier,
+            stanceValue,
+            rawInfluence,
+        };
+    });
+
+    const shares = normalizeSharesWithCap(
+        breakdown.map((entry) => entry.rawInfluence),
+        MAX_MODEL_INFLUENCE_SHARE,
+    );
+
+    let weightedSupportScore = 0;
+    let weightedSupport = 0;
+    let weightedOpposition = 0;
+    const modelBreakdown: ConsensusAnalysis['influence']['modelBreakdown'] = breakdown.map((entry, idx) => {
+        const effectiveShare = shares[idx];
+        const signedContribution = effectiveShare * entry.stanceValue;
+        weightedSupportScore += signedContribution;
+        if (entry.stanceValue > 0) {
+            weightedSupport += effectiveShare * entry.stanceValue;
+        } else if (entry.stanceValue < 0) {
+            weightedOpposition += effectiveShare * Math.abs(entry.stanceValue);
+        }
+        return {
+            ...entry,
+            effectiveShare,
+            signedContribution,
+        };
+    });
+
+    const supportDenominator = weightedSupport + weightedOpposition;
+    const weightedSupportRatio = supportDenominator > 0
+        ? Math.max(0, Math.min(1, weightedSupport / supportDenominator))
+        : 0.5;
+    const weightedGatePassed = weightedSupportRatio >= threshold;
+
+    return {
+        weightedSupportScore,
+        weightedSupportRatio,
+        weightedGatePassed,
+        unweightedGatePassed: false,
+        modelBreakdown,
+    };
+}
+
 // ============================================================================
 // Main Consensus Analyzer
 // ============================================================================
@@ -414,12 +581,21 @@ export function analyzeConsensus(
                 supporters: [],
                 dissenters: [],
             },
+            influence: {
+                weightedSupportScore: 0,
+                weightedSupportRatio: 0,
+                unweightedGatePassed: false,
+                weightedGatePassed: false,
+                modelBreakdown: [],
+            },
         };
     }
 
     if (responses.length === 1) {
         const only = responses[0];
         const proposal = extractProposedResolution(only);
+        const stanceValue = stanceToInfluenceValue(only.stance);
+        const boundedStance = Math.max(-1, Math.min(1, stanceValue));
         return {
             score: 1.0,
             voteScore: 1.0,
@@ -437,6 +613,24 @@ export function analyzeConsensus(
                 supportRatio: 1,
                 supporters: [only.participantSessionId],
                 dissenters: [],
+            },
+            influence: {
+                weightedSupportScore: boundedStance,
+                weightedSupportRatio: Math.max(0, Math.min(1, (boundedStance + 1) / 2)),
+                unweightedGatePassed: true,
+                weightedGatePassed: true,
+                modelBreakdown: [{
+                    sessionId: only.participantSessionId,
+                    modelId: only.modelId,
+                    modelTitle: only.modelTitle,
+                    userWeight: clampUserWeight(only.userWeight),
+                    reliabilityWeight: clampReliabilityWeight(only.reliabilityWeight),
+                    confidenceModifier: clampConfidenceModifier(only.confidenceModifier ?? (MIN_CONFIDENCE_MODIFIER + (Math.max(0, Math.min(1, only.confidence)) * (MAX_CONFIDENCE_MODIFIER - MIN_CONFIDENCE_MODIFIER)))),
+                    stanceValue: boundedStance,
+                    rawInfluence: 1,
+                    effectiveShare: 1,
+                    signedContribution: boundedStance,
+                }],
             },
         };
     }
@@ -469,21 +663,32 @@ export function analyzeConsensus(
     const rules = makeProtocolRules(responses, resolvedOptions);
     const protocolEntries = toProtocolEntries(responses);
     const voteConsensus = detectConsensus(protocolEntries, rules);
+    const unweightedGatePassed = voteConsensus.outcome === 'reached';
 
     // Proposal convergence enforces that models are converging on the same final recommendation,
     // not just similar tone/stance.
     const proposalConvergence = extractProposalConvergence(responses);
+    const influence = computeInfluenceBreakdown(responses, resolvedOptions.consensusThreshold);
+    influence.unweightedGatePassed = unweightedGatePassed;
+
+    const consensusOutcome: ConsensusAnalysis['consensusOutcome'] =
+        voteConsensus.outcome === 'deadlock'
+            ? 'deadlock'
+            : (unweightedGatePassed && influence.weightedGatePassed ? 'reached' : 'not-reached');
 
     // Calculate confidence-weighted semantic score
     const semanticScore = (avgSimilarity * 0.7) + (stanceAlignment * 0.3);
     const normalizedVoteScore = normalizeVoteScore(voteConsensus.score, resolvedOptions.consensusMode);
+    const gateAlignmentScore =
+        (influence.weightedSupportRatio * 0.55) +
+        (normalizedVoteScore * 0.45);
 
     // Hybrid score:
-    // - deterministic vote score (45%)
+    // - weighted + unweighted gate alignment (45%)
     // - proposal convergence quorum (35%)
     // - semantic similarity/alignment (20%)
     const score =
-        (normalizedVoteScore * 0.45) +
+        (gateAlignmentScore * 0.45) +
         (proposalConvergence.supportRatio * 0.35) +
         (semanticScore * 0.20);
 
@@ -514,7 +719,7 @@ export function analyzeConsensus(
         score,
         responses.length,
         disputedPoints.length,
-        voteConsensus.outcome,
+        consensusOutcome,
         proposalConvergence.supportRatio,
         resolvedOptions.resolutionQuorum,
     );
@@ -522,7 +727,7 @@ export function analyzeConsensus(
     return {
         score,
         voteScore: voteConsensus.score,
-        consensusOutcome: voteConsensus.outcome,
+        consensusOutcome,
         level,
         agreedPoints,
         disputedPoints,
@@ -532,6 +737,7 @@ export function analyzeConsensus(
         recommendation,
         stableRounds: 0,
         proposalConvergence,
+        influence,
     };
 }
 

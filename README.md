@@ -221,6 +221,10 @@ npm run dev
 # Run linting
 npm run lint
 
+# Live browser + CLI soak (serial, polling stability)
+npm run test:stress:live:soak:smoke
+npm run test:stress:live:soak:full
+
 # Build for production
 npm run build
 
@@ -234,6 +238,51 @@ npm run dist
 - **Zustand** - Lightweight state management (replacing React Context + useRef)
 - **SQLite (better-sqlite3)** - Local persistence for sessions and workflows
 - **Electron** - Desktop packaging with auto-updates and system tray
+
+## Rugged Weighted Consensus (Design Reference)
+
+This project is adopting user-configurable model influence while preserving ensemble safety.
+
+- **Status**: Planned design, not fully shipped yet.
+- **Goal**: Let users express trust in specific models without allowing a single model to silently dominate outcomes.
+
+### Influence Model
+
+Each model's contribution is computed as:
+
+```text
+influence = user_weight * reliability_weight * confidence_modifier * stance_value
+```
+
+- `user_weight`: explicit trust set by user (recommended scale `1-5`, default `3`)
+- `reliability_weight`: model reliability estimated from historical outcomes
+- `confidence_modifier`: bounded function of model confidence (clamped to avoid over-dominance)
+- `stance_value`: signed vote signal used in consensus math
+
+### Guardrails
+
+- Use a **dual gate**:
+  - unweighted ensemble sanity gate
+  - weighted decision gate
+- Cap any single model's maximum share of influence (for example `<= 40%`)
+- Clamp confidence impact to a narrow range (for example `0.55-0.85`)
+- Fall back to neutral confidence when confidence is missing or unparseable
+- Show influence breakdown in trace/insights so final outcomes are explainable
+
+### Why This Shape
+
+- User trust should matter.
+- Raw model confidence alone is often miscalibrated.
+- Multiplicative weighting is a practical composition of established online-learning and aggregation methods.
+
+### Research References
+
+- Littlestone, Warmuth. *The Weighted Majority Algorithm* (1994): https://doi.org/10.1006/inco.1994.1009
+- Freund, Schapire. *A Decision-Theoretic Generalization of On-Line Learning and an Application to Boosting* (1997): https://doi.org/10.1006/jcss.1997.1504
+- Dawid, Skene. *Maximum Likelihood Estimation of Observer Error-Rates Using the EM Algorithm* (1979): https://doi.org/10.2307/2346806
+- Guo et al. *On Calibration of Modern Neural Networks* (ICML 2017): https://proceedings.mlr.press/v70/guo17a.html
+- Genest, Zidek. *Combining Probability Distributions: A Critique and an Annotated Bibliography* (1984 technical report): https://stat.uw.edu/research/tech-reports/combining-probability-distributions-critique-and-annotated-bibliography
+- Russo et al. *A Tutorial on Thompson Sampling* (2017): https://arxiv.org/abs/1707.02038
 
 ## License
 

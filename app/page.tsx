@@ -38,6 +38,7 @@ export default function Page() {
     const [viewMode, setViewMode] = useState<ViewMode>('grid');
     const [isBounceOpen, setBounceOpen] = useState(false);
     const [bounceTopic, setBounceTopic] = useState<string | null>(null);
+    const [viewportHeight, setViewportHeight] = useState(900);
 
     // Terminal dock
     const terminal = useTerminalDock();
@@ -81,6 +82,14 @@ export default function Page() {
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [terminal]);
+
+    // Track viewport height so panel sizes can scale with active terminal count.
+    useEffect(() => {
+        const updateViewport = () => setViewportHeight(window.innerHeight);
+        updateViewport();
+        window.addEventListener('resize', updateViewport);
+        return () => window.removeEventListener('resize', updateViewport);
+    }, []);
 
     // Register panel ref
     const registerPanelRef = useCallback((id: string, ref: ChatPanelRef | null) => {
@@ -255,6 +264,26 @@ export default function Page() {
         messages: sessionMessages.get(s.id) || [],
     }));
 
+    const gridPanelHeight = useMemo(() => {
+        if (sessions.length === 0) return 360;
+
+        const rows =
+            sessions.length === 1
+                ? 1
+                : sessions.length === 2
+                    ? 1
+                    : sessions.length <= 4
+                        ? 2
+                        : Math.ceil(sessions.length / 3);
+
+        const reservedSpace = sessions.length >= 2 ? 310 : 250;
+        const available = Math.max(280, viewportHeight - reservedSpace);
+        const panelGap = 20;
+        const candidate = Math.floor((available - (rows - 1) * panelGap) / rows);
+
+        return Math.max(260, Math.min(620, candidate));
+    }, [sessions.length, viewportHeight]);
+
     return (
         <div className={`app-frame h-screen flex flex-col overflow-hidden ${terminal.isOpen ? 'pb-[200px]' : 'pb-8'}`}>
             {/* Control rail */}
@@ -412,10 +441,12 @@ export default function Page() {
                             grid gap-4 sm:gap-5 justify-center
                             ${sessions.length === 1 ? 'grid-cols-1 max-w-md mx-auto' : ''}
                             ${sessions.length === 2 ? 'grid-cols-2 max-w-3xl mx-auto' : ''}
-                            ${sessions.length >= 3 ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto' : ''}
+                            ${sessions.length === 3 ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto' : ''}
+                            ${sessions.length === 4 ? 'grid-cols-1 md:grid-cols-2 max-w-5xl mx-auto' : ''}
+                            ${sessions.length >= 5 ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto' : ''}
                         `}>
                             {sessions.map(session => (
-                                <div key={session.id} className="min-w-[320px]">
+                                <div key={session.id} className="min-w-[280px]">
                                     <ChatPanel
                                         ref={(ref) => registerPanelRef(session.id, ref)}
                                         session={session}
@@ -428,6 +459,7 @@ export default function Page() {
                                         onLoadingChange={handleLoadingChange}
                                         onBounce={handleBounce}
                                         compact={sessions.length > 2}
+                                        panelHeight={gridPanelHeight}
                                     />
                                 </div>
                             ))}

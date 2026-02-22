@@ -22,6 +22,14 @@ interface RunTimelineStripProps {
     onOpenTrace: () => void;
 }
 
+const ACTIVE_RECENCY_WINDOW_MS = 20_000;
+const WARM_RECENCY_WINDOW_MS = 90_000;
+const TIMELY_RESPONSE_MAX_MS = 12_000;
+const FAST_POLL_MS = 750;
+const WARM_POLL_MS = 1_400;
+const IDLE_POLL_MS = 3_500;
+const HIDDEN_POLL_MS = 6_000;
+
 function formatTime(value: string): string {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
@@ -49,19 +57,59 @@ export function RunTimelineStrip({ isVisible, onOpenTrace }: RunTimelineStripPro
         }
     }, [isVisible]);
 
+    const getNextPollMs = useCallback(() => {
+        if (typeof document !== 'undefined' && document.hidden) {
+            return HIDDEN_POLL_MS;
+        }
+
+        if (entries.length === 0) {
+            return IDLE_POLL_MS;
+        }
+
+        const newest = entries[0];
+        const newestTimestamp = Date.parse(newest.createdAt);
+        const recencyMs = Number.isFinite(newestTimestamp) ? Date.now() - newestTimestamp : Number.POSITIVE_INFINITY;
+        const recentlyActive = recencyMs <= ACTIVE_RECENCY_WINDOW_MS;
+        const recentlyWarm = recencyMs <= WARM_RECENCY_WINDOW_MS;
+
+        const recentSample = entries.slice(0, 4);
+        const allTimely = recentSample.length > 0 && recentSample.every((entry) =>
+            entry.status === 'success' &&
+            Number.isFinite(entry.durationMs) &&
+            entry.durationMs > 0 &&
+            entry.durationMs <= TIMELY_RESPONSE_MAX_MS
+        );
+
+        if (recentlyActive && allTimely) return FAST_POLL_MS;
+        if (recentlyWarm) return WARM_POLL_MS;
+        return IDLE_POLL_MS;
+    }, [entries]);
+
     useEffect(() => {
         if (!isVisible) return;
-        const frame = requestAnimationFrame(() => {
-            void load();
-        });
-        const interval = setInterval(() => {
-            void load();
-        }, 4000);
-        return () => {
-            cancelAnimationFrame(frame);
-            clearInterval(interval);
+        let cancelled = false;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+
+        const poll = async () => {
+            await load();
+            if (cancelled) return;
+            timer = setTimeout(() => {
+                void poll();
+            }, getNextPollMs());
         };
-    }, [isVisible, load]);
+
+        const frame = requestAnimationFrame(() => {
+            void poll();
+        });
+
+        return () => {
+            cancelled = true;
+            cancelAnimationFrame(frame);
+            if (timer) {
+                clearTimeout(timer);
+            }
+        };
+    }, [isVisible, load, getNextPollMs]);
 
     if (!isVisible) return null;
 
