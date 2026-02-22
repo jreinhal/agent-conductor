@@ -139,7 +139,7 @@ export function TerminalDock({
         return (
             <button
                 onClick={onToggle}
-                className="fixed bottom-0 left-0 right-0 h-8 bg-gray-900 border-t border-gray-700 flex items-center justify-between px-4 text-xs text-gray-400 hover:bg-gray-800 transition-colors z-40"
+                className="fixed bottom-0 left-0 right-0 h-8 panel-shell rounded-none border-t border-x-0 border-b-0 flex items-center justify-between px-4 text-xs text-[color:var(--ac-text-dim)] transition-colors z-40"
             >
                 <div className="flex items-center gap-2">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -161,17 +161,17 @@ export function TerminalDock({
 
     return (
         <div
-            className="fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-700 z-40 flex flex-col"
+            className="fixed bottom-0 left-0 right-0 panel-shell rounded-none border-x-0 border-b-0 z-40 flex flex-col"
             style={{ height: dockHeight }}
         >
             {/* Resize handle */}
             <div
-                className="h-1 bg-gray-700 hover:bg-blue-500 cursor-row-resize transition-colors"
+                className="h-1 bg-[color:var(--ac-border-soft)] hover:bg-[color:var(--ac-accent)] cursor-row-resize transition-colors"
                 onMouseDown={handleResizeStart}
             />
 
             {/* Header */}
-            <div className="flex items-center justify-between px-3 py-1.5 bg-gray-800 border-b border-gray-700">
+            <div className="flex items-center justify-between px-3 py-1.5 bg-[color:var(--ac-surface-strong)] border-b border-[color:var(--ac-border-soft)]">
                 <div className="flex items-center gap-2">
                     {/* Process tabs */}
                     <div className="flex items-center gap-1">
@@ -182,8 +182,8 @@ export function TerminalDock({
                                 className={`
                                     flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors
                                     ${activeProcessId === process.id
-                                        ? 'bg-gray-700 text-gray-200'
-                                        : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700/50'}
+                                        ? 'bg-[color:var(--ac-surface)] text-[color:var(--ac-text)]'
+                                        : 'text-[color:var(--ac-text-muted)] hover:text-[color:var(--ac-text)] hover:bg-[color:var(--ac-surface)]/70'}
                                 `}
                             >
                                 <span
@@ -198,7 +198,7 @@ export function TerminalDock({
                                         e.stopPropagation();
                                         clearProcess(process.id);
                                     }}
-                                    className="ml-1 text-gray-500 hover:text-gray-300"
+                                    className="ml-1 text-[color:var(--ac-text-muted)] hover:text-[color:var(--ac-text)]"
                                 >
                                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
@@ -211,7 +211,7 @@ export function TerminalDock({
                     {/* New terminal button */}
                     <button
                         onClick={() => inputRef.current?.focus()}
-                        className="p-1 text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
+                        className="control-chip p-1"
                         title="New command"
                     >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -221,8 +221,8 @@ export function TerminalDock({
                 </div>
 
                 <button
-                    onClick={onToggle}
-                    className="p-1 text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
+                    onClick={onClose}
+                    className="control-chip p-1"
                 >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
@@ -233,7 +233,7 @@ export function TerminalDock({
             {/* Output area */}
             <div
                 ref={outputRef}
-                className="flex-1 overflow-auto p-3 font-mono text-xs text-gray-300"
+                className="flex-1 overflow-auto p-3 font-mono text-xs text-[color:var(--ac-text-dim)]"
             >
                 {activeProcess ? (
                     activeProcess.output.map((line, index) => (
@@ -248,14 +248,14 @@ export function TerminalDock({
                         </div>
                     ))
                 ) : (
-                    <div className="text-gray-500 italic">
+                    <div className="text-[color:var(--ac-text-muted)] italic">
                         No active process. Type a command below.
                     </div>
                 )}
             </div>
 
             {/* Input */}
-            <form onSubmit={handleSubmit} className="flex items-center gap-2 px-3 py-2 bg-gray-800 border-t border-gray-700">
+            <form onSubmit={handleSubmit} className="flex items-center gap-2 px-3 py-2 bg-[color:var(--ac-surface-strong)] border-t border-[color:var(--ac-border-soft)]">
                 <span className="text-green-400 text-xs font-mono">$</span>
                 <input
                     ref={inputRef}
@@ -263,12 +263,12 @@ export function TerminalDock({
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     placeholder="Enter command..."
-                    className="flex-1 bg-transparent text-gray-200 text-xs font-mono focus:outline-none placeholder-gray-600"
+                    className="flex-1 bg-transparent text-[color:var(--ac-text)] text-xs font-mono focus:outline-none placeholder-[color:var(--ac-text-muted)]"
                 />
                 <button
                     type="submit"
                     disabled={!input.trim()}
-                    className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="control-chip px-2 py-1 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     Run
                 </button>

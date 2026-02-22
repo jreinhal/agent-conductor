@@ -157,13 +157,6 @@ export function BounceController({
         };
     }, [handleBounceEvent]);
 
-    // Update topic when initialTopic changes
-    useEffect(() => {
-        if (initialTopic) {
-            setTopic(initialTopic);
-        }
-    }, [initialTopic]);
-
     // Start the debate
     const handleStart = useCallback(async () => {
         if (!topic.trim() || selectedParticipants.length < 2) {
@@ -234,9 +227,15 @@ export function BounceController({
     const canStart = topic.trim().length > 0 && selectedParticipants.length >= 2 && !isActive;
 
     return (
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg overflow-hidden">
+        <div className="panel-shell rounded-xl overflow-hidden">
             {/* Header */}
-            <div className="px-4 py-3 bg-gradient-to-r from-purple-500 to-indigo-600 text-white">
+            <div
+                className="px-4 py-3 text-white"
+                style={{
+                    background:
+                        'linear-gradient(120deg, color-mix(in srgb, var(--ac-accent) 72%, #0d1226), color-mix(in srgb, var(--ac-accent-strong) 86%, #0f1f3d))',
+                }}
+            >
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                         <Zap className="w-5 h-5" />
@@ -248,15 +247,15 @@ export function BounceController({
 
             {/* Topic Input */}
             {!isActive && (
-                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <div className="p-4 border-b border-[color:var(--ac-border-soft)]">
+                    <label className="block text-sm font-medium text-[color:var(--ac-text-dim)] mb-2">
                         Debate Topic
                     </label>
                     <textarea
                         value={topic}
                         onChange={(e) => setTopic(e.target.value)}
                         placeholder="Enter the topic or question to debate..."
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
+                        className="ac-input px-3 py-2 text-sm resize-none"
                         rows={3}
                     />
                 </div>
@@ -264,18 +263,18 @@ export function BounceController({
 
             {/* Participant Selection */}
             {!isActive && (
-                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                <div className="p-4 border-b border-[color:var(--ac-border-soft)]">
                     <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
-                            <Users className="w-4 h-4 text-gray-500" />
-                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                            <Users className="w-4 h-4 text-[color:var(--ac-text-muted)]" />
+                            <span className="text-sm font-medium text-[color:var(--ac-text-dim)]">
                                 Participants ({selectedParticipants.length})
                             </span>
                         </div>
                         {selectedParticipants.length > 0 && (
                             <button
                                 onClick={clearSelectedParticipants}
-                                className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                                className="text-xs text-[color:var(--ac-text-muted)] hover:text-[color:var(--ac-text)]"
                             >
                                 Clear all
                             </button>
@@ -294,10 +293,15 @@ export function BounceController({
                                     className={`
                                         px-3 py-1.5 rounded-full text-sm font-medium transition-all
                                         ${isSelected
-                                            ? 'bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 ring-2 ring-purple-500'
-                                            : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                                            ? 'ring-2 text-[color:var(--ac-text)]'
+                                            : 'ac-soft-surface text-[color:var(--ac-text-dim)] hover:border-[color:var(--ac-border)]'
                                         }
                                     `}
+                                    style={isSelected ? {
+                                        background: 'color-mix(in srgb, var(--ac-accent) 16%, var(--ac-surface))',
+                                        borderColor: 'var(--ac-accent)',
+                                        boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--ac-accent) 65%, transparent)',
+                                    } : undefined}
                                 >
                                     {isSelected && <Check className="w-3 h-3 inline mr-1" />}
                                     {session.title}
@@ -307,13 +311,13 @@ export function BounceController({
                     </div>
 
                     {sessions.length === 0 && (
-                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                        <p className="text-sm text-[color:var(--ac-text-muted)]">
                             No active sessions. Add some models to start a debate.
                         </p>
                     )}
 
                     {selectedParticipants.length < 2 && sessions.length >= 2 && (
-                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                        <p className="text-xs mt-2" style={{ color: 'color-mix(in srgb, var(--ac-accent-warm) 88%, #fff 12%)' }}>
                             Select at least 2 participants to start
                         </p>
                     )}
@@ -322,10 +326,10 @@ export function BounceController({
 
             {/* Configuration */}
             {!isActive && (
-                <div className="border-b border-gray-200 dark:border-gray-700">
+                <div className="border-b border-[color:var(--ac-border-soft)]">
                     <button
                         onClick={() => setShowConfig(!showConfig)}
-                        className="w-full px-4 py-2 flex items-center justify-between text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+                        className="w-full px-4 py-2 flex items-center justify-between text-sm text-[color:var(--ac-text-dim)] hover:bg-[color:var(--ac-surface)]"
                     >
                         <div className="flex items-center gap-2">
                             <Settings2 className="w-4 h-4" />
@@ -338,7 +342,7 @@ export function BounceController({
                         <div className="px-4 pb-4 space-y-4">
                             {/* Mode */}
                             <div>
-                                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                                <label className="block text-xs font-medium text-[color:var(--ac-text-muted)] mb-1">
                                     Debate Mode
                                 </label>
                                 <div className="flex gap-2">
@@ -346,9 +350,13 @@ export function BounceController({
                                         onClick={() => setBounceConfig({ mode: 'sequential' })}
                                         className={`flex-1 px-3 py-2 rounded-lg text-sm ${
                                             bounceConfig.mode === 'sequential'
-                                                ? 'bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300'
-                                                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
+                                                ? 'text-[color:var(--ac-text)]'
+                                                : 'ac-soft-surface text-[color:var(--ac-text-dim)]'
                                         }`}
+                                        style={bounceConfig.mode === 'sequential' ? {
+                                            background: 'color-mix(in srgb, var(--ac-accent) 14%, var(--ac-surface))',
+                                            border: '1px solid color-mix(in srgb, var(--ac-accent) 55%, var(--ac-border))',
+                                        } : undefined}
                                     >
                                         Sequential
                                     </button>
@@ -356,9 +364,13 @@ export function BounceController({
                                         onClick={() => setBounceConfig({ mode: 'parallel' })}
                                         className={`flex-1 px-3 py-2 rounded-lg text-sm ${
                                             bounceConfig.mode === 'parallel'
-                                                ? 'bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300'
-                                                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
+                                                ? 'text-[color:var(--ac-text)]'
+                                                : 'ac-soft-surface text-[color:var(--ac-text-dim)]'
                                         }`}
+                                        style={bounceConfig.mode === 'parallel' ? {
+                                            background: 'color-mix(in srgb, var(--ac-accent) 14%, var(--ac-surface))',
+                                            border: '1px solid color-mix(in srgb, var(--ac-accent) 55%, var(--ac-border))',
+                                        } : undefined}
                                     >
                                         Parallel
                                     </button>
@@ -367,7 +379,7 @@ export function BounceController({
 
                             {/* Max Rounds */}
                             <div>
-                                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                                <label className="block text-xs font-medium text-[color:var(--ac-text-muted)] mb-1">
                                     Max Rounds: {bounceConfig.maxRounds}
                                 </label>
                                 <input
@@ -382,7 +394,7 @@ export function BounceController({
 
                             {/* Consensus Threshold */}
                             <div>
-                                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                                <label className="block text-xs font-medium text-[color:var(--ac-text-muted)] mb-1">
                                     Consensus Threshold: {Math.round(bounceConfig.consensusThreshold * 100)}%
                                 </label>
                                 <input
@@ -397,14 +409,14 @@ export function BounceController({
 
                             {/* User Interjection */}
                             <div className="flex items-center justify-between">
-                                <span className="text-xs text-gray-500 dark:text-gray-400">
+                                <span className="text-xs text-[color:var(--ac-text-muted)]">
                                     Allow interjections
                                 </span>
                                 <button
                                     onClick={() => setBounceConfig({ allowUserInterjection: !bounceConfig.allowUserInterjection })}
                                     className={`w-10 h-6 rounded-full transition-colors ${
                                         bounceConfig.allowUserInterjection
-                                            ? 'bg-purple-500'
+                                            ? 'bg-[color:var(--ac-accent)]'
                                             : 'bg-gray-300 dark:bg-gray-600'
                                     }`}
                                 >
@@ -419,10 +431,10 @@ export function BounceController({
                             {/* Participant Pruning */}
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                                    <span className="text-xs text-[color:var(--ac-text-muted)]">
                                         Prune aligned models
                                     </span>
-                                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                                    <p className="text-xs text-[color:var(--ac-text-muted)] mt-0.5">
                                         Drop redundant participants between rounds
                                     </p>
                                 </div>
@@ -430,7 +442,7 @@ export function BounceController({
                                     onClick={() => setBounceConfig({ enablePruning: !bounceConfig.enablePruning })}
                                     className={`w-10 h-6 rounded-full transition-colors ${
                                         bounceConfig.enablePruning
-                                            ? 'bg-purple-500'
+                                            ? 'bg-[color:var(--ac-accent)]'
                                             : 'bg-gray-300 dark:bg-gray-600'
                                     }`}
                                 >
@@ -444,7 +456,7 @@ export function BounceController({
 
                             {/* Context Token Budget */}
                             <div>
-                                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                                <label className="block text-xs font-medium text-[color:var(--ac-text-muted)] mb-1">
                                     Context Budget: {bounceConfig.maxContextTokens.toLocaleString()} tokens
                                 </label>
                                 <input
@@ -456,7 +468,7 @@ export function BounceController({
                                     onChange={(e) => setBounceConfig({ maxContextTokens: parseInt(e.target.value) })}
                                     className="w-full"
                                 />
-                                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                                <p className="text-xs text-[color:var(--ac-text-muted)] mt-0.5">
                                     Older responses are trimmed when context exceeds budget
                                 </p>
                             </div>
@@ -467,10 +479,10 @@ export function BounceController({
 
             {/* User Interjection Input */}
             {bounceState.status === 'waiting_user' && (
-                <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800">
+                <div className="p-4 border-b border-[color:var(--ac-border-soft)]" style={{ background: 'color-mix(in srgb, var(--ac-accent-warm) 14%, var(--ac-surface))' }}>
                     <div className="flex items-center gap-2 mb-2">
-                        <MessageSquare className="w-4 h-4 text-amber-600" />
-                        <span className="text-sm font-medium text-amber-700 dark:text-amber-300">
+                        <MessageSquare className="w-4 h-4" style={{ color: 'color-mix(in srgb, var(--ac-accent-warm) 86%, #fff 14%)' }} />
+                        <span className="text-sm font-medium" style={{ color: 'color-mix(in srgb, var(--ac-accent-warm) 88%, #fff 12%)' }}>
                             Your turn to interject
                         </span>
                     </div>
@@ -478,20 +490,20 @@ export function BounceController({
                         value={userInterjection}
                         onChange={(e) => setUserInterjection(e.target.value)}
                         placeholder="Add context, redirect the discussion, or ask a clarifying question..."
-                        className="w-full px-3 py-2 border border-amber-300 dark:border-amber-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:ring-2 focus:ring-amber-500 focus:border-transparent resize-none mb-2"
+                        className="ac-input px-3 py-2 text-sm resize-none mb-2"
                         rows={2}
                     />
                     <div className="flex gap-2">
                         <button
                             onClick={handleInterjection}
                             disabled={!userInterjection.trim()}
-                            className="flex-1 px-3 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-lg text-sm font-medium transition-colors"
+                            className="ac-btn-primary flex-1 px-3 py-2 text-white rounded-lg text-sm font-medium transition-all disabled:opacity-40"
                         >
                             Submit
                         </button>
                         <button
                             onClick={handleContinue}
-                            className="px-3 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium transition-colors"
+                            className="control-chip px-3 py-2 rounded-lg text-sm font-medium transition-colors"
                         >
                             Skip
                         </button>
@@ -501,16 +513,16 @@ export function BounceController({
 
             {/* Progress */}
             {isActive && bounceState.consensus && (
-                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                <div className="p-4 border-b border-[color:var(--ac-border-soft)]">
                     <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm text-gray-600 dark:text-gray-400">
+                        <span className="text-sm text-[color:var(--ac-text-dim)]">
                             Round {bounceState.currentRound} of {bounceConfig.maxRounds}
                         </span>
-                        <span className="text-sm font-medium">
+                        <span className="text-sm font-medium text-[color:var(--ac-text)]">
                             Consensus: {Math.round(bounceState.consensus.score * 100)}%
                         </span>
                     </div>
-                    <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                    <div className="h-2 rounded-full overflow-hidden ac-soft-surface">
                         <div
                             className={`h-full transition-all duration-500 ${
                                 bounceState.consensus.level === 'unanimous' || bounceState.consensus.level === 'strong'
@@ -531,7 +543,7 @@ export function BounceController({
                     <button
                         onClick={handleStart}
                         disabled={!canStart}
-                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-300 dark:disabled:bg-purple-800 text-white rounded-lg font-medium transition-colors"
+                        className="ac-btn-primary flex-1 flex items-center justify-center gap-2 px-4 py-2 text-white rounded-lg font-medium transition-all disabled:opacity-40"
                     >
                         <Play className="w-4 h-4" />
                         Start Debate
@@ -540,7 +552,7 @@ export function BounceController({
                     <>
                         <button
                             onClick={handlePauseResume}
-                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg font-medium transition-colors"
+                            className="control-chip flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors"
                         >
                             {bounceState.status === 'paused' ? (
                                 <>
@@ -556,14 +568,15 @@ export function BounceController({
                         </button>
                         <button
                             onClick={handleSkipToJudge}
-                            className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-100 dark:bg-indigo-900/50 hover:bg-indigo-200 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 rounded-lg font-medium transition-colors"
+                            className="control-chip flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors"
+                            style={{ borderColor: 'color-mix(in srgb, var(--ac-accent) 55%, var(--ac-border))' }}
                         >
                             <SkipForward className="w-4 h-4" />
                             Judge Now
                         </button>
                         <button
                             onClick={handleStop}
-                            className="flex items-center justify-center gap-2 px-4 py-2 bg-red-100 dark:bg-red-900/50 hover:bg-red-200 dark:hover:bg-red-900 text-red-700 dark:text-red-300 rounded-lg font-medium transition-colors"
+                            className="ac-btn-danger flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors"
                         >
                             <Square className="w-4 h-4" />
                         </button>
@@ -573,8 +586,8 @@ export function BounceController({
 
             {/* Error Display */}
             {bounceState.status === 'error' && bounceState.error && (
-                <div className="mx-4 mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                    <div className="flex items-center gap-2 text-red-700 dark:text-red-300">
+                <div className="mx-4 mb-4 p-3 rounded-lg ac-btn-danger">
+                    <div className="flex items-center gap-2 text-[color:var(--ac-danger)]">
                         <X className="w-4 h-4" />
                         <span className="text-sm">{bounceState.error}</span>
                     </div>

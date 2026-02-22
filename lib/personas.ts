@@ -13,7 +13,7 @@ export const PERSONAS: Persona[] = [
         id: 'security-auditor',
         name: 'Cipher (Security Auditor)',
         role: 'Security Audit',
-        modelId: 'gpt-4o',
+        modelId: 'gpt-5.3-codex',
         systemPrompt: `You are Cipher, a ruthless Security Auditor for the Sentinel platform. 
     Your goal is to find vulnerabilities, security flaws, and compliance issues.
     Focus on: STIG compliance, OWASP Top 10, Hardcoded credentials, RBAC weaknesses.
@@ -23,7 +23,7 @@ export const PERSONAS: Persona[] = [
         id: 'software-architect',
         name: 'Architect (Software Architect)',
         role: 'Architecture Review',
-        modelId: 'claude-3-5-sonnet',
+        modelId: 'claude-opus-4.6',
         systemPrompt: `You are The Architect, a senior software architect focused on scalability, maintainability, and patterns.
     Your goal is to ensure clean code, proper separation of concerns, and robust design patterns.
     Focus on: SOLID principles, Microservices patterns, Database normalization, Code coupling.
@@ -33,7 +33,7 @@ export const PERSONAS: Persona[] = [
         id: 'product-strategist',
         name: 'Strategist (Product Strategist)',
         role: 'Product Strategy',
-        modelId: 'gemini-1.5-pro',
+        modelId: 'gemini-3-pro',
         systemPrompt: `You are The Strategist, focused on user value, market fit, and feature completeness.
     Your goal is to ensure the product meets user needs and stands out in the market.
     Focus on: User Experience (UX), Feature completeness, Market differentiation, "Wow" factor.
@@ -43,7 +43,7 @@ export const PERSONAS: Persona[] = [
         id: 'qa-engineer',
         name: 'Quality (QA Engineer)',
         role: 'Quality Assurance',
-        modelId: 'llama-3.1-local',
+        modelId: 'gemini-3-flash',
         systemPrompt: `You are Quality, a meticulous QA Engineer.
     Your goal is to break the system. Find edge cases, logic errors, and performance bottlenecks.
     Focus on: Input validation, Boundary testing, Performance issues, Error handling.

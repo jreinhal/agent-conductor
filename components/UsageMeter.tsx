@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 interface TokenUsage {
     sessionId: string;
@@ -19,33 +19,22 @@ interface UsageMeterProps {
 
 // Approximate costs per 1M tokens (as of February 2026)
 const MODEL_COSTS: Record<string, { input: number; output: number }> = {
-    // OpenAI
+    // OpenAI (GPT 5.2+)
+    'gpt-5.3-codex': { input: 15, output: 45 },
     'gpt-5.2': { input: 10, output: 30 },
-    'gpt-5.2-pro': { input: 15, output: 45 },
-    'gpt-4.1': { input: 5, output: 15 },
-    'o3': { input: 20, output: 80 },
-    'o3-pro': { input: 30, output: 120 },
-    'o4-mini': { input: 1.10, output: 4.40 },
-    'gpt-4o': { input: 2.5, output: 10 },
-    'gpt-4o-mini': { input: 0.15, output: 0.6 },
-    // Anthropic
+
+    // Anthropic (Claude 4.5+)
     'claude-sonnet-4.5': { input: 3, output: 15 },
     'claude-opus-4.5': { input: 15, output: 75 },
+    'claude-opus-4.6': { input: 15, output: 75 },
     'claude-haiku-4.5': { input: 0.80, output: 4 },
-    // Google
+
+    // Google (Gemini 3+)
     'gemini-3-pro': { input: 1.25, output: 5 },
     'gemini-3-flash': { input: 0.10, output: 0.40 },
-    'gemini-2.5-flash': { input: 0.075, output: 0.30 },
-    'gemini-2.5-pro': { input: 1.25, output: 5 },
-    // xAI
+
+    // xAI (Grok 4+)
     'grok-4.1-fast': { input: 3, output: 15 },
-    'grok-3': { input: 2, output: 10 },
-    'grok-3-mini': { input: 0.30, output: 0.50 },
-    'grok-code': { input: 0.30, output: 0.50 },
-    // Local (free)
-    'llama3.3': { input: 0, output: 0 },
-    'deepseek-r1': { input: 0, output: 0 },
-    'qwen2.5': { input: 0, output: 0 },
 };
 
 export function calculateCost(modelId: string, promptTokens: number, completionTokens: number): number {
@@ -71,27 +60,28 @@ export function UsageMeter({ sessions, tokenUsage }: UsageMeterProps) {
         totals.estimatedCost += usage.estimatedCost;
     });
 
-    if (sessions.length === 0) return null;
+    // Hide meter when no billable usage has been tracked (e.g. CLI-only sessions).
+    if (sessions.length === 0 || totals.totalTokens === 0) return null;
 
     return (
         <div className="relative">
             {/* Collapsed view - just the badge */}
             <button
                 onClick={() => setIsExpanded(!isExpanded)}
-                className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors text-sm"
+                className="status-pill flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm hover:border-[color:var(--ac-border)]"
             >
-                <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 text-[color:var(--ac-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
-                <span className="text-gray-600 dark:text-gray-300 font-mono">
+                <span className="text-[color:var(--ac-text-dim)] font-mono">
                     {formatTokens(totals.totalTokens)}
                 </span>
-                <span className="text-gray-400">·</span>
-                <span className="text-green-600 dark:text-green-400 font-mono">
+                <span className="text-[color:var(--ac-text-muted)]">·</span>
+                <span className="text-[color:var(--ac-success)] font-mono">
                     ${totals.estimatedCost.toFixed(4)}
                 </span>
                 <svg
-                    className={`w-3 h-3 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                    className={`w-3 h-3 text-[color:var(--ac-text-muted)] transition-transform ${isExpanded ? 'rotate-180' : ''}`}
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -102,9 +92,9 @@ export function UsageMeter({ sessions, tokenUsage }: UsageMeterProps) {
 
             {/* Expanded view - breakdown per model */}
             {isExpanded && (
-                <div className="absolute top-full right-0 mt-2 w-80 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-50">
-                    <div className="p-3 border-b border-gray-100 dark:border-gray-800">
-                        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">Session Usage</h3>
+                <div className="absolute top-full right-0 mt-2 w-80 panel-shell rounded-xl shadow-xl z-50">
+                    <div className="p-3 border-b border-[color:var(--ac-border-soft)]">
+                        <h3 className="text-sm font-medium text-[color:var(--ac-text)]">Session Usage</h3>
                     </div>
 
                     <div className="max-h-64 overflow-y-auto">
@@ -112,36 +102,36 @@ export function UsageMeter({ sessions, tokenUsage }: UsageMeterProps) {
                             const usage = tokenUsage.get(session.id);
                             if (!usage) {
                                 return (
-                                    <div key={session.id} className="px-3 py-2 border-b border-gray-50 dark:border-gray-800 last:border-0">
+                                    <div key={session.id} className="px-3 py-2 border-b border-[color:var(--ac-border-soft)]/60 last:border-0">
                                         <div className="flex items-center justify-between">
-                                            <span className="text-sm text-gray-600 dark:text-gray-300 truncate max-w-[150px]">
+                                            <span className="text-sm text-[color:var(--ac-text-dim)] truncate max-w-[150px]">
                                                 {session.title}
                                             </span>
-                                            <span className="text-xs text-gray-400">No usage yet</span>
+                                            <span className="text-xs text-[color:var(--ac-text-muted)]">No usage yet</span>
                                         </div>
                                     </div>
                                 );
                             }
 
                             return (
-                                <div key={session.id} className="px-3 py-2 border-b border-gray-50 dark:border-gray-800 last:border-0">
+                                <div key={session.id} className="px-3 py-2 border-b border-[color:var(--ac-border-soft)]/60 last:border-0">
                                     <div className="flex items-center justify-between mb-1">
-                                        <span className="text-sm text-gray-600 dark:text-gray-300 truncate max-w-[150px]">
+                                        <span className="text-sm text-[color:var(--ac-text-dim)] truncate max-w-[150px]">
                                             {session.title}
                                         </span>
-                                        <span className="text-xs font-mono text-green-600 dark:text-green-400">
+                                        <span className="text-xs font-mono text-[color:var(--ac-success)]">
                                             ${usage.estimatedCost.toFixed(4)}
                                         </span>
                                     </div>
-                                    <div className="flex items-center gap-3 text-[10px] text-gray-400">
+                                    <div className="flex items-center gap-3 text-[10px] text-[color:var(--ac-text-muted)]">
                                         <span>↑ {formatTokens(usage.promptTokens)}</span>
                                         <span>↓ {formatTokens(usage.completionTokens)}</span>
                                         <span>= {formatTokens(usage.totalTokens)}</span>
                                     </div>
                                     {/* Token bar */}
-                                    <div className="mt-1 h-1 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                                    <div className="mt-1 h-1 bg-[color:var(--ac-surface-strong)] rounded-full overflow-hidden">
                                         <div
-                                            className="h-full bg-gradient-to-r from-blue-500 to-purple-500"
+                                            className="h-full bg-gradient-to-r from-cyan-500 to-emerald-500"
                                             style={{
                                                 width: `${Math.min((usage.totalTokens / 10000) * 100, 100)}%`
                                             }}
@@ -153,19 +143,19 @@ export function UsageMeter({ sessions, tokenUsage }: UsageMeterProps) {
                     </div>
 
                     {/* Totals footer */}
-                    <div className="p-3 border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 rounded-b-xl">
+                    <div className="p-3 border-t border-[color:var(--ac-border-soft)] bg-[color:var(--ac-surface-strong)]/60 rounded-b-xl">
                         <div className="flex items-center justify-between text-sm">
-                            <span className="text-gray-500">Total</span>
+                            <span className="text-[color:var(--ac-text-muted)]">Total</span>
                             <div className="flex items-center gap-3">
-                                <span className="font-mono text-gray-600 dark:text-gray-300">
+                                <span className="font-mono text-[color:var(--ac-text-dim)]">
                                     {formatTokens(totals.totalTokens)} tokens
                                 </span>
-                                <span className="font-mono text-green-600 dark:text-green-400 font-medium">
+                                <span className="font-mono text-[color:var(--ac-success)] font-medium">
                                     ${totals.estimatedCost.toFixed(4)}
                                 </span>
                             </div>
                         </div>
-                        <div className="mt-1 text-[10px] text-gray-400 text-right">
+                        <div className="mt-1 text-[10px] text-[color:var(--ac-text-muted)] text-right">
                             ↑ {formatTokens(totals.promptTokens)} input · ↓ {formatTokens(totals.completionTokens)} output
                         </div>
                     </div>

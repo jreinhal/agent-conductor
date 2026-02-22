@@ -136,7 +136,7 @@ export function ResizablePanels({
     }, [isDragging, direction, panelConfigs]);
 
     // Double-click to reset
-    const handleDoubleClick = useCallback((index: number) => {
+    const handleDoubleClick = useCallback(() => {
         const count = children.length;
         const equalSize = 100 / count;
         setSizes(Array(count).fill(equalSize));
@@ -166,11 +166,11 @@ export function ResizablePanels({
                             className={`
                                 relative flex-shrink-0 group
                                 ${direction === 'horizontal' ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize'}
-                                ${isDragging === index ? 'bg-blue-500' : 'bg-gray-200 dark:bg-gray-700 hover:bg-blue-400'}
+                                ${isDragging === index ? 'bg-[color:var(--ac-accent)]' : 'bg-[color:var(--ac-border-soft)] hover:bg-[color:var(--ac-accent)]/55'}
                                 transition-colors
                             `}
                             onMouseDown={(e) => handleResizeStart(index, e)}
-                            onDoubleClick={() => handleDoubleClick(index)}
+                            onDoubleClick={handleDoubleClick}
                         >
                             {/* Wider hit area */}
                             <div
@@ -188,7 +188,7 @@ export function ResizablePanels({
                                     ${direction === 'horizontal'
                                         ? 'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-1 h-8'
                                         : 'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-1 w-8'}
-                                    bg-blue-500 rounded-full
+                                    bg-[color:var(--ac-accent)] rounded-full
                                 `}
                             />
                         </div>
@@ -216,7 +216,6 @@ export function getLayoutSizes(preset: LayoutPreset, panelCount: number): number
             return Array(panelCount).fill(100 / panelCount);
         case 'sidebar-left':
             if (panelCount >= 2) {
-                const mainSize = 75;
                 const sidebarSize = 25;
                 const rest = panelCount - 1;
                 return [sidebarSize, ...Array(rest).fill((100 - sidebarSize) / rest)];
@@ -224,7 +223,6 @@ export function getLayoutSizes(preset: LayoutPreset, panelCount: number): number
             return [100];
         case 'sidebar-right':
             if (panelCount >= 2) {
-                const mainSize = 75;
                 const sidebarSize = 25;
                 const rest = panelCount - 1;
                 return [...Array(rest).fill((100 - sidebarSize) / rest), sidebarSize];

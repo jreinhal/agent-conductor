@@ -1,16 +1,18 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import { ToastProvider } from "@/components/Toast";
 import "./globals.css";
 
-const geistSans = Geist({
+const appSans = Space_Grotesk({
   variable: "--font-geist-sans",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
 });
 
-const geistMono = Geist_Mono({
+const appMono = JetBrains_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+  weight: ["400", "500", "700"],
 });
 
 export const metadata: Metadata = {
@@ -28,10 +30,8 @@ const themeScript = `
       } else if (theme === 'light') {
         document.documentElement.classList.remove('dark');
       } else {
-        // System preference
-        if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-          document.documentElement.classList.add('dark');
-        }
+        // Default theme (first launch) is dark.
+        document.documentElement.classList.add('dark');
       }
     } catch (e) {}
   })();
@@ -48,7 +48,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${appSans.variable} ${appMono.variable} antialiased`}
       >
         <ToastProvider>
           {children}

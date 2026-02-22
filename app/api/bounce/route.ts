@@ -82,7 +82,7 @@ export async function POST(req: Request) {
         // Get the model
         let selectedModel;
         try {
-            selectedModel = getModel(model || 'claude-sonnet-4');
+            selectedModel = getModel(model || 'claude-opus-4.6');
         } catch (modelError) {
             return Response.json(
                 { error: { code: 'MODEL_NOT_FOUND', message: `Model "${model}" not found` } },

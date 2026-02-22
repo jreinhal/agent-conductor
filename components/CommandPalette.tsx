@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { MODELS, Model } from '@/lib/models';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { MODELS } from '@/lib/models';
 import { PERSONAS, Persona } from '@/lib/personas';
 import { WORKFLOWS, Workflow } from '@/lib/workflows';
 
@@ -44,9 +44,12 @@ export function CommandPalette({
     const listRef = useRef<HTMLDivElement>(null);
 
     // Build command list
-    const allWorkflows = [...WORKFLOWS, ...customWorkflows];
+    const allWorkflows = useMemo(
+        () => [...WORKFLOWS, ...customWorkflows],
+        [customWorkflows]
+    );
 
-    const commands: Command[] = [
+    const commands = useMemo<Command[]>(() => ([
         // Actions
         {
             id: 'synthesize',
@@ -92,31 +95,34 @@ export function CommandPalette({
             icon: '⚡',
             action: () => onSelectWorkflow(workflow.id),
         })),
-    ];
+    ]), [allWorkflows, onClearAll, onSelectModel, onSelectPersona, onSelectWorkflow, onSynthesize]);
 
     // Filter commands
-    const filteredCommands = query
-        ? commands.filter(cmd =>
-            cmd.label.toLowerCase().includes(query.toLowerCase()) ||
-            cmd.description?.toLowerCase().includes(query.toLowerCase())
-        )
-        : commands;
+    const filteredCommands = useMemo(
+        () => query
+            ? commands.filter(cmd =>
+                cmd.label.toLowerCase().includes(query.toLowerCase()) ||
+                cmd.description?.toLowerCase().includes(query.toLowerCase())
+            )
+            : commands,
+        [commands, query]
+    );
 
     // Group by type
-    const grouped = {
+    const grouped = useMemo(() => ({
         action: filteredCommands.filter(c => c.type === 'action'),
         model: filteredCommands.filter(c => c.type === 'model'),
         persona: filteredCommands.filter(c => c.type === 'persona'),
         workflow: filteredCommands.filter(c => c.type === 'workflow'),
-    };
+    }), [filteredCommands]);
 
     // Flatten for keyboard navigation
-    const flatList = [
+    const flatList = useMemo(() => [
         ...grouped.action,
         ...grouped.model,
         ...grouped.persona,
         ...grouped.workflow,
-    ];
+    ], [grouped]);
 
     // Reset selection when query changes
     useEffect(() => {
@@ -188,16 +194,16 @@ export function CommandPalette({
             onClick={onClose}
         >
             {/* Backdrop */}
-            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-md" />
 
             {/* Palette */}
             <div
-                className="relative w-full max-w-xl bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden"
+                className="relative w-full max-w-xl panel-shell rounded-2xl shadow-2xl overflow-hidden"
                 onClick={e => e.stopPropagation()}
             >
                 {/* Search input */}
-                <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-800">
-                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="flex items-center gap-3 px-4 py-3 border-b border-[color:var(--ac-border-soft)]">
+                    <svg className="w-5 h-5 text-[color:var(--ac-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                     </svg>
                     <input
@@ -207,9 +213,9 @@ export function CommandPalette({
                         onChange={e => setQuery(e.target.value)}
                         onKeyDown={handleKeyDown}
                         placeholder="Search models, personas, workflows..."
-                        className="flex-1 bg-transparent text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none"
+                        className="flex-1 bg-transparent text-[color:var(--ac-text)] placeholder-[color:var(--ac-text-muted)] focus:outline-none"
                     />
-                    <kbd className="hidden sm:inline-flex items-center px-2 py-0.5 text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 rounded">
+                    <kbd className="hidden sm:inline-flex items-center px-2 py-0.5 text-xs rounded bg-black/10 dark:bg-white/10 border border-[color:var(--ac-border-soft)]">
                         ESC
                     </kbd>
                 </div>
@@ -217,7 +223,7 @@ export function CommandPalette({
                 {/* Results */}
                 <div ref={listRef} className="max-h-[50vh] overflow-y-auto">
                     {flatList.length === 0 ? (
-                        <div className="px-4 py-8 text-center text-gray-400">
+                        <div className="px-4 py-8 text-center text-[color:var(--ac-text-muted)]">
                             No results found
                         </div>
                     ) : (
@@ -302,20 +308,20 @@ export function CommandPalette({
                 </div>
 
                 {/* Footer hint */}
-                <div className="flex items-center justify-between px-4 py-2 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-400">
+                <div className="flex items-center justify-between px-4 py-2 border-t border-[color:var(--ac-border-soft)] text-xs text-[color:var(--ac-text-muted)]">
                     <div className="flex items-center gap-4">
                         <span className="flex items-center gap-1">
-                            <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">↑</kbd>
-                            <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">↓</kbd>
+                            <kbd className="px-1.5 py-0.5 rounded bg-black/10 dark:bg-white/10 border border-[color:var(--ac-border-soft)]">↑</kbd>
+                            <kbd className="px-1.5 py-0.5 rounded bg-black/10 dark:bg-white/10 border border-[color:var(--ac-border-soft)]">↓</kbd>
                             navigate
                         </span>
                         <span className="flex items-center gap-1">
-                            <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">↵</kbd>
+                            <kbd className="px-1.5 py-0.5 rounded bg-black/10 dark:bg-white/10 border border-[color:var(--ac-border-soft)]">↵</kbd>
                             select
                         </span>
                     </div>
                     <span className="flex items-center gap-1">
-                        <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">⌘K</kbd>
+                        <kbd className="px-1.5 py-0.5 rounded bg-black/10 dark:bg-white/10 border border-[color:var(--ac-border-soft)]">⌘K</kbd>
                         toggle
                     </span>
                 </div>
@@ -327,7 +333,7 @@ export function CommandPalette({
 function CommandGroup({ title, children }: { title: string; children: React.ReactNode }) {
     return (
         <div className="py-2">
-            <div className="px-4 py-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider">
+            <div className="px-4 py-1.5 text-xs font-medium text-[color:var(--ac-text-muted)] uppercase tracking-wider">
                 {title}
             </div>
             {children}
@@ -351,19 +357,19 @@ function CommandItem({
             className={`
                 w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors
                 ${isSelected
-                    ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
-                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50'}
+                    ? 'bg-cyan-500/10 text-[color:var(--ac-text)]'
+                    : 'text-[color:var(--ac-text-dim)] hover:bg-[color:var(--ac-surface-strong)]'}
             `}
         >
             <span className="text-lg w-6 text-center">{command.icon}</span>
             <div className="flex-1 min-w-0">
                 <div className="font-medium truncate">{command.label}</div>
                 {command.description && (
-                    <div className="text-xs text-gray-400 truncate">{command.description}</div>
+                    <div className="text-xs text-[color:var(--ac-text-muted)] truncate">{command.description}</div>
                 )}
             </div>
             {command.shortcut && (
-                <kbd className="text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">
+                <kbd className="text-xs px-1.5 py-0.5 rounded bg-black/10 dark:bg-white/10 border border-[color:var(--ac-border-soft)]">
                     {command.shortcut}
                 </kbd>
             )}

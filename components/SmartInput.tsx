@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, KeyboardEvent, useCallback } from 'react';
+import { useState, useRef, useEffect, KeyboardEvent, useCallback, useMemo } from 'react';
 import { MODELS } from '@/lib/models';
 import { PERSONAS } from '@/lib/personas';
 import { WORKFLOWS } from '@/lib/workflows';
@@ -67,7 +67,7 @@ export function SmartInput({
     const suggestionsRef = useRef<HTMLDivElement>(null);
 
     // Build all suggestions
-    const allSuggestions: Suggestion[] = [
+    const allSuggestions = useMemo<Suggestion[]>(() => ([
         // Models with @ prefix
         ...MODELS.map(m => ({
             id: m.id,
@@ -97,7 +97,7 @@ export function SmartInput({
         })),
         // Commands with / prefix
         ...COMMANDS,
-    ];
+    ]), []);
 
     // Auto-resize textarea
     useEffect(() => {
@@ -194,6 +194,20 @@ export function SmartInput({
         textareaRef.current?.focus();
     }, [triggerInfo, input, onSelectModel, onSelectPersona, onSelectWorkflow, onSynthesize, onClearAll]);
 
+    // Handle submit
+    const handleSubmit = useCallback(() => {
+        if (!input.trim() || isLoading) return;
+
+        const pii = scanForPII(input);
+        if (pii.length > 0) {
+            setPiiWarning(pii);
+            return;
+        }
+
+        onSubmit(input);
+        setInput('');
+    }, [input, isLoading, onSubmit]);
+
     // Handle keyboard navigation
     const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
         if (showSuggestions) {
@@ -226,21 +240,7 @@ export function SmartInput({
             e.preventDefault();
             handleSubmit();
         }
-    }, [showSuggestions, suggestions, selectedIndex, selectSuggestion]);
-
-    // Handle submit
-    const handleSubmit = useCallback(() => {
-        if (!input.trim() || isLoading) return;
-
-        const pii = scanForPII(input);
-        if (pii.length > 0) {
-            setPiiWarning(pii);
-            return;
-        }
-
-        onSubmit(input);
-        setInput('');
-    }, [input, isLoading, onSubmit]);
+    }, [showSuggestions, suggestions, selectedIndex, selectSuggestion, handleSubmit]);
 
     const confirmSend = () => {
         setPiiWarning(null);
@@ -258,16 +258,19 @@ export function SmartInput({
         <div className="relative">
             {/* PII Warning */}
             {piiWarning && (
-                <div className="absolute bottom-full left-0 right-0 mb-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                <div
+                    className="absolute bottom-full left-0 right-0 mb-2 p-3 rounded-xl panel-shell"
+                    style={{ borderColor: 'color-mix(in srgb, var(--ac-danger) 55%, transparent)' }}
+                >
                     <div className="flex items-start gap-2 mb-2">
-                        <svg className="w-4 h-4 text-red-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-4 h-4 text-[color:var(--ac-danger)] mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                         </svg>
                         <div className="flex-1">
-                            <p className="text-sm font-medium text-red-800 dark:text-red-200">
+                            <p className="text-sm font-medium text-[color:var(--ac-danger)]">
                                 Sensitive information detected
                             </p>
-                            <div className="mt-1 text-xs text-red-600 dark:text-red-300 font-mono">
+                            <div className="mt-1 text-xs text-[color:var(--ac-text-dim)] font-mono">
                                 {piiWarning.map((f, i) => (
                                     <span key={i} className="mr-2">{f.type}: {f.value}</span>
                                 ))}
@@ -277,13 +280,14 @@ export function SmartInput({
                     <div className="flex gap-2 justify-end">
                         <button
                             onClick={() => setPiiWarning(null)}
-                            className="px-3 py-1 text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                            className="control-chip px-3 py-1 text-xs"
                         >
                             Cancel
                         </button>
                         <button
                             onClick={confirmSend}
-                            className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                            className="px-3 py-1 text-xs rounded-md text-white"
+                            style={{ background: 'linear-gradient(135deg, var(--ac-danger), #ff5d6f)' }}
                         >
                             Send Anyway
                         </button>
@@ -295,7 +299,7 @@ export function SmartInput({
             {showSuggestions && (
                 <div
                     ref={suggestionsRef}
-                    className="absolute bottom-full left-0 right-0 mb-3 bg-white dark:bg-[#1a1a24] border border-gray-200 dark:border-[#2a2a38] rounded-xl shadow-2xl max-h-72 overflow-hidden"
+                    className="absolute bottom-full left-0 right-0 mb-3 panel-shell rounded-xl max-h-72 overflow-hidden"
                     style={{
                         animation: 'slideInUp 280ms cubic-bezier(0.32, 0.72, 0, 1) forwards',
                         WebkitBackdropFilter: 'blur(20px)',
@@ -311,8 +315,8 @@ export function SmartInput({
                                 className={`
                                     w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left active:scale-[0.98]
                                     ${selectedIndex === index
-                                        ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 shadow-sm'
-                                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-[#22222e]'}
+                                        ? 'bg-cyan-500/10 text-[color:var(--ac-text)] shadow-sm'
+                                        : 'text-[color:var(--ac-text-dim)] hover:bg-[color:var(--ac-surface-strong)]'}
                                 `}
                                 style={{
                                     transition: 'background-color 100ms cubic-bezier(0.25, 0.1, 0.25, 1), transform 80ms cubic-bezier(0, 0, 0.2, 1)',
@@ -322,28 +326,30 @@ export function SmartInput({
                                 <span className="text-base flex-shrink-0">{suggestion.icon}</span>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
-                                        <span className="text-xs text-gray-400 dark:text-gray-500 font-mono bg-gray-100 dark:bg-[#2a2a38] px-1 rounded">
+                                        <span className="ac-kbd text-xs font-mono px-1">
                                             {suggestion.prefix}
                                         </span>
                                         <span className="font-medium truncate text-sm">{suggestion.label}</span>
                                     </div>
                                     {suggestion.description && (
-                                        <p className="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5">{suggestion.description}</p>
+                                        <p className="text-xs text-[color:var(--ac-text-muted)] truncate mt-0.5">{suggestion.description}</p>
                                     )}
                                 </div>
-                                <span className={`
-                                    text-[9px] font-medium uppercase px-1.5 py-0.5 rounded
-                                    ${suggestion.type === 'model' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : ''}
-                                    ${suggestion.type === 'persona' ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400' : ''}
-                                    ${suggestion.type === 'workflow' ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400' : ''}
-                                    ${suggestion.type === 'command' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : ''}
-                                `}>
+                                <span
+                                    className={`
+                                        text-[9px] font-medium uppercase px-1.5 py-0.5 rounded
+                                        ${suggestion.type === 'model' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : ''}
+                                        ${suggestion.type === 'persona' ? 'bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300' : ''}
+                                        ${suggestion.type === 'workflow' ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300' : ''}
+                                        ${suggestion.type === 'command' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : ''}
+                                    `}
+                                >
                                     {suggestion.type}
                                 </span>
                             </button>
                         ))}
                     </div>
-                    <div className="px-4 py-2 border-t border-gray-100 dark:border-[#1f1f2a] bg-gray-50/80 dark:bg-[#14141a]/80 text-[10px] text-gray-400 dark:text-gray-500 flex items-center gap-3">
+                    <div className="px-4 py-2 border-t border-[color:var(--ac-border-soft)] bg-[color:var(--ac-surface-strong)]/80 text-[10px] text-[color:var(--ac-text-muted)] flex items-center gap-3">
                         <span><span className="font-mono font-bold">@</span> models</span>
                         <span><span className="font-mono font-bold">$</span> personas</span>
                         <span><span className="font-mono font-bold">#</span> workflows</span>
@@ -356,12 +362,11 @@ export function SmartInput({
             <div
                 className={`
                     flex items-end gap-3 p-4
-                    bg-white dark:bg-[#14141a]
-                    border border-gray-200 dark:border-[#2a2a38]
+                    panel-shell
                     rounded-2xl shadow-lg
-                    ${input.trim() ? 'border-gray-300 dark:border-[#3a3a48]' : ''}
-                    focus-within:border-blue-400 dark:focus-within:border-blue-500
-                    focus-within:shadow-xl focus-within:shadow-blue-500/10
+                    ${input.trim() ? 'border-[color:var(--ac-border)]' : ''}
+                    focus-within:border-[color:var(--ac-border)]
+                    focus-within:shadow-xl
                 `}
                 style={{
                     transition: 'border-color 250ms cubic-bezier(0.25, 0.1, 0.25, 1), box-shadow 300ms cubic-bezier(0.25, 0.1, 0.25, 1)'
@@ -374,15 +379,15 @@ export function SmartInput({
                     onKeyDown={handleKeyDown}
                     placeholder={sessionCount > 0 ? "Message all models... (@ $ # / for quick actions)" : "Type @ to add a model..."}
                     rows={1}
-                    className="flex-1 resize-none bg-transparent text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none px-1 py-1 max-h-[200px] text-sm leading-relaxed"
+                    className="flex-1 resize-none bg-transparent text-[color:var(--ac-text)] placeholder-[color:var(--ac-text-muted)] focus:outline-none px-1 py-1 max-h-[200px] text-sm leading-relaxed"
                     disabled={isLoading}
                 />
 
                 <div className="flex items-center gap-3">
                     {sessionCount > 0 && (
-                        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 dark:bg-[#1f1f2a] rounded-lg">
+                        <div className="status-pill flex items-center gap-1.5 px-2.5 py-1 rounded-lg">
                             <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                            <span className="text-xs font-medium whitespace-nowrap">
                                 {sessionCount} model{sessionCount !== 1 ? 's' : ''}
                             </span>
                         </div>
@@ -394,10 +399,13 @@ export function SmartInput({
                         className={`
                             p-2.5 rounded-xl
                             ${isLoading || !input.trim() || sessionCount === 0
-                                ? 'bg-gray-100 dark:bg-[#1f1f2a] text-gray-400 dark:text-gray-500 cursor-not-allowed'
-                                : 'bg-blue-500 hover:bg-blue-600 text-white shadow-md hover:shadow-lg hover:shadow-blue-500/25 hover:scale-[1.03] active:scale-[0.97]'}
+                                ? 'status-pill text-[color:var(--ac-text-muted)] cursor-not-allowed'
+                                : 'text-white shadow-md hover:shadow-lg hover:scale-[1.03] active:scale-[0.97]'}
                         `}
                         style={{
+                            background: isLoading || !input.trim() || sessionCount === 0
+                                ? undefined
+                                : 'linear-gradient(135deg, var(--ac-accent), var(--ac-accent-strong))',
                             transition: 'background-color 200ms cubic-bezier(0.25, 0.1, 0.25, 1), transform 250ms cubic-bezier(0.175, 0.885, 0.32, 1.1), box-shadow 200ms cubic-bezier(0.25, 0.1, 0.25, 1)',
                             WebkitTapHighlightColor: 'transparent'
                         }}
@@ -417,25 +425,25 @@ export function SmartInput({
             </div>
 
             {/* Keyboard hints - Cleaner design */}
-            <div className="flex items-center justify-between mt-2 px-3 text-[11px] text-gray-400 dark:text-gray-500">
+            <div className="flex items-center justify-between mt-2 px-3 text-[11px] text-[color:var(--ac-text-muted)]">
                 <div className="flex items-center gap-3">
                     <span className="flex items-center gap-1">
-                        <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-[#1f1f2a] border border-gray-200 dark:border-[#2a2a38] rounded text-[10px] font-mono">Enter</kbd>
+                        <kbd className="ac-kbd px-1.5 py-0.5 text-[10px] font-mono">Enter</kbd>
                         <span>send</span>
                     </span>
                     <span className="flex items-center gap-1">
-                        <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-[#1f1f2a] border border-gray-200 dark:border-[#2a2a38] rounded text-[10px] font-mono">⇧</kbd>
-                        <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-[#1f1f2a] border border-gray-200 dark:border-[#2a2a38] rounded text-[10px] font-mono">Enter</kbd>
+                        <kbd className="ac-kbd px-1.5 py-0.5 text-[10px] font-mono">⇧</kbd>
+                        <kbd className="ac-kbd px-1.5 py-0.5 text-[10px] font-mono">Enter</kbd>
                         <span>new line</span>
                     </span>
                 </div>
                 <div className="flex items-center gap-3">
                     <span className="flex items-center gap-1">
-                        <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-[#1f1f2a] border border-gray-200 dark:border-[#2a2a38] rounded text-[10px] font-mono">Tab</kbd>
+                        <kbd className="ac-kbd px-1.5 py-0.5 text-[10px] font-mono">Tab</kbd>
                         <span>select</span>
                     </span>
                     <span className="flex items-center gap-1">
-                        <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-[#1f1f2a] border border-gray-200 dark:border-[#2a2a38] rounded text-[10px] font-mono">Esc</kbd>
+                        <kbd className="ac-kbd px-1.5 py-0.5 text-[10px] font-mono">Esc</kbd>
                         <span>dismiss</span>
                     </span>
                 </div>

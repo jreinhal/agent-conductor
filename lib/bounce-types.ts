@@ -60,7 +60,7 @@ export const DEFAULT_BOUNCE_CONFIG: BounceConfig = {
     consensusThreshold: 0.7,
     pauseBetweenResponses: 500,
     allowUserInterjection: true,
-    judgeModelId: 'claude-sonnet-4',
+    judgeModelId: 'claude-opus-4.6',
     autoStopOnConsensus: true,
     enablePruning: false,
     pruningThreshold: 0.85,

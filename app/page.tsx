@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Message } from 'ai';
 
 // Components
@@ -15,13 +15,16 @@ import { TerminalDock, useTerminalDock } from '@/components/TerminalDock';
 import { SettingsModal } from '@/components/SettingsModal';
 import { BounceController } from '@/components/BounceController';
 import { BouncePanel } from '@/components/BouncePanel';
+import { ProtocolBoard } from '@/components/ProtocolBoard';
+import { SessionInsightsPanel } from '@/components/SessionInsightsPanel';
+import { DecisionTracePanel } from '@/components/DecisionTracePanel';
+import { RunTimelineStrip } from '@/components/RunTimelineStrip';
 
 // Data & State
 import { MODELS } from '@/lib/models';
-import { PERSONAS, Persona } from '@/lib/personas';
-import { WORKFLOWS, Workflow } from '@/lib/workflows';
+import { PERSONAS } from '@/lib/personas';
+import { WORKFLOWS } from '@/lib/workflows';
 import { useAgentStore } from '@/lib/store';
-import { Session } from '@/lib/types';
 
 type ViewMode = 'grid' | 'freeform' | 'resizable';
 
@@ -29,6 +32,9 @@ export default function Page() {
     // UI State
     const [isCommandOpen, setCommandOpen] = useState(false);
     const [isSettingsOpen, setSettingsOpen] = useState(false);
+    const [isProtocolOpen, setProtocolOpen] = useState(false);
+    const [isInsightsOpen, setInsightsOpen] = useState(false);
+    const [isTraceOpen, setTraceOpen] = useState(false);
     const [viewMode, setViewMode] = useState<ViewMode>('grid');
     const [isBounceOpen, setBounceOpen] = useState(false);
     const [bounceTopic, setBounceTopic] = useState<string | null>(null);
@@ -37,7 +43,7 @@ export default function Page() {
     const terminal = useTerminalDock();
 
     // Token tracking
-    const { usage: tokenUsage, trackUsage, clearUsage } = useTokenTracking();
+    const { usage: tokenUsage, clearUsage } = useTokenTracking();
 
     // Chat panel refs for broadcasting messages
     const panelRefs = useRef<Map<string, ChatPanelRef>>(new Map());
@@ -53,7 +59,10 @@ export default function Page() {
     const removeSession = useAgentStore((state) => state.removeSession);
     const clearSessions = useAgentStore((state) => state.clearSessions);
 
-    const allWorkflows = [...WORKFLOWS, ...workflow.customWorkflows];
+    const allWorkflows = useMemo(
+        () => [...WORKFLOWS, ...workflow.customWorkflows],
+        [workflow.customWorkflows]
+    );
 
     // Global keyboard shortcut for command palette
     useEffect(() => {
@@ -247,33 +256,36 @@ export default function Page() {
     }));
 
     return (
-        <div className={`h-screen bg-gray-50 dark:bg-gray-950 flex flex-col overflow-hidden ${terminal.isOpen ? 'pb-[200px]' : 'pb-8'}`}>
-            {/* Clean minimal header */}
-            <header className="flex items-center justify-between px-6 py-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
-                <div className="flex items-center gap-4">
-                    <h1 className="text-lg font-medium text-gray-900 dark:text-gray-100">
-                        Agent Conductor
-                    </h1>
+        <div className={`app-frame h-screen flex flex-col overflow-hidden ${terminal.isOpen ? 'pb-[200px]' : 'pb-8'}`}>
+            {/* Control rail */}
+            <header className="control-rail sticky top-0 z-30 px-4 sm:px-6 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+                        <div>
+                            <h1 className="text-base sm:text-lg font-semibold tracking-tight text-[color:var(--ac-text)]">
+                                Agent Conductor
+                            </h1>
+                            <p className="text-[10px] sm:text-[11px] uppercase tracking-[0.16em] text-[color:var(--ac-text-muted)]">
+                                Orchestration Command Center
+                            </p>
+                        </div>
 
-                    {/* View mode toggle */}
-                    <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
-                        {(['grid', 'resizable', 'freeform'] as ViewMode[]).map((mode) => (
-                            <button
-                                key={mode}
-                                onClick={() => setViewMode(mode)}
-                                className={`px-3 py-1 text-xs rounded-md transition-colors capitalize ${
-                                    viewMode === mode
-                                        ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
-                                        : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-                                }`}
-                            >
-                                {mode}
-                            </button>
-                        ))}
+                        {/* View mode toggle */}
+                        <div className="flex items-center gap-1 rounded-xl border border-[color:var(--ac-border-soft)] bg-[color:var(--ac-surface)] p-1">
+                            {(['grid', 'resizable', 'freeform'] as ViewMode[]).map((mode) => (
+                                <button
+                                    key={mode}
+                                    data-active={viewMode === mode}
+                                    onClick={() => setViewMode(mode)}
+                                    className="control-chip px-2.5 sm:px-3 py-1 sm:py-1.5 text-[11px] sm:text-xs capitalize"
+                                >
+                                    {mode}
+                                </button>
+                            ))}
+                        </div>
                     </div>
-                </div>
 
-                <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
                     {/* Usage meter */}
                     {sessions.length > 0 && (
                         <UsageMeter
@@ -284,7 +296,7 @@ export default function Page() {
 
                     {/* Active models count */}
                     {sessions.length > 0 && (
-                        <span className="text-xs text-gray-400">
+                        <span className="status-pill px-2.5 py-1 rounded-lg text-[11px]">
                             {sessions.length} active
                         </span>
                     )}
@@ -292,22 +304,19 @@ export default function Page() {
                     {/* Command palette trigger */}
                     <button
                         onClick={() => setCommandOpen(true)}
-                        className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-500 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                        className="control-chip flex items-center gap-2 px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm"
                     >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                         </svg>
-                        <kbd className="hidden sm:inline px-1.5 py-0.5 text-xs bg-gray-200 dark:bg-gray-700 rounded">⌘K</kbd>
+                        <kbd className="hidden sm:inline px-1.5 py-0.5 text-xs rounded bg-black/10 dark:bg-white/10">⌘K</kbd>
                     </button>
 
                     {/* Terminal toggle */}
                     <button
                         onClick={terminal.toggle}
-                        className={`p-2 rounded-lg transition-colors ${
-                            terminal.isOpen
-                                ? 'bg-gray-800 text-gray-200'
-                                : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'
-                        }`}
+                        data-active={terminal.isOpen}
+                        className="control-chip p-2"
                         title="Toggle Terminal (⌘`)"
                     >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -317,8 +326,35 @@ export default function Page() {
 
                     {/* Settings */}
                     <button
+                        onClick={() => setTraceOpen(true)}
+                        className="control-chip px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm"
+                        title="Open Routing Trace"
+                    >
+                        Trace
+                    </button>
+
+                    {/* Settings */}
+                    <button
+                        onClick={() => setInsightsOpen(true)}
+                        className="control-chip px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm"
+                        title="Open Session Insights"
+                    >
+                        Insights
+                    </button>
+
+                    {/* Settings */}
+                    <button
+                        onClick={() => setProtocolOpen(true)}
+                        className="control-chip px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm"
+                        title="Open Protocol Board"
+                    >
+                        Protocol
+                    </button>
+
+                    {/* Settings */}
+                    <button
                         onClick={() => setSettingsOpen(true)}
-                        className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                        className="control-chip p-2"
                     >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -326,36 +362,44 @@ export default function Page() {
                         </svg>
                     </button>
                 </div>
+                </div>
             </header>
+
+            <RunTimelineStrip
+                isVisible={sessions.length > 0}
+                onOpenTrace={() => setTraceOpen(true)}
+            />
 
             {/* Main content area */}
             <div className="flex-1 relative overflow-hidden">
                 {sessions.length === 0 ? (
                     /* Empty state */
-                    <div className="h-full flex flex-col items-center justify-center text-gray-400">
-                        <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
+                    <div className="h-full flex flex-col items-center justify-center text-center px-4">
+                        <div className="panel-shell rounded-3xl px-10 py-10 max-w-xl">
+                            <div className="w-16 h-16 rounded-2xl bg-[color:var(--ac-surface-strong)] border border-[color:var(--ac-border-soft)] flex items-center justify-center mb-5 mx-auto">
                             <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                             </svg>
                         </div>
-                        <p className="text-lg font-medium text-gray-600 dark:text-gray-300 mb-2">
-                            No models active
-                        </p>
-                        <p className="text-sm mb-4 text-center max-w-sm">
-                            Type <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-xs">@</kbd> to add models,{' '}
-                            <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-xs">$</kbd> for personas,{' '}
-                            <kbd className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-xs">/</kbd> for commands
-                        </p>
-                        <button
-                            onClick={() => setCommandOpen(true)}
-                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-                        >
-                            Get Started
-                        </button>
+                            <p className="text-xl font-semibold text-[color:var(--ac-text)] mb-2">
+                                No models active
+                            </p>
+                            <p className="text-sm text-[color:var(--ac-text-dim)] mb-5 max-w-sm mx-auto">
+                                Type <kbd className="px-1.5 py-0.5 rounded bg-black/10 dark:bg-white/10">@</kbd> to add models,{' '}
+                                <kbd className="px-1.5 py-0.5 rounded bg-black/10 dark:bg-white/10">$</kbd> for personas,{' '}
+                                <kbd className="px-1.5 py-0.5 rounded bg-black/10 dark:bg-white/10">/</kbd> for commands.
+                            </p>
+                            <button
+                                onClick={() => setCommandOpen(true)}
+                                className="control-chip px-5 py-2.5 text-sm font-medium"
+                            >
+                                Launch Command Palette
+                            </button>
+                        </div>
                     </div>
                 ) : viewMode === 'grid' ? (
                     /* Grid view */
-                    <div className="h-full overflow-auto p-6">
+                    <div className="h-full overflow-auto p-4 sm:p-6">
                         {/* Consensus indicator */}
                         {sessions.length >= 2 && (
                             <div className="max-w-2xl mx-auto mb-4">
@@ -365,7 +409,7 @@ export default function Page() {
 
                         {/* Grid of panels */}
                         <div className={`
-                            grid gap-4 justify-center
+                            grid gap-4 sm:gap-5 justify-center
                             ${sessions.length === 1 ? 'grid-cols-1 max-w-md mx-auto' : ''}
                             ${sessions.length === 2 ? 'grid-cols-2 max-w-3xl mx-auto' : ''}
                             ${sessions.length >= 3 ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto' : ''}
@@ -375,6 +419,7 @@ export default function Page() {
                                     <ChatPanel
                                         ref={(ref) => registerPanelRef(session.id, ref)}
                                         session={session}
+                                        initialMessages={sessionMessages.get(session.id) || []}
                                         onClose={() => {
                                             removeSession(session.id);
                                             clearUsage(session.id);
@@ -390,7 +435,7 @@ export default function Page() {
                     </div>
                 ) : viewMode === 'resizable' ? (
                     /* Resizable panels view */
-                    <div className="h-full p-4">
+                    <div className="h-full p-3 sm:p-4">
                         <ResizablePanels
                             direction="horizontal"
                             storageKey="main-panels"
@@ -401,6 +446,7 @@ export default function Page() {
                                     <ChatPanel
                                         ref={(ref) => registerPanelRef(session.id, ref)}
                                         session={session}
+                                        initialMessages={sessionMessages.get(session.id) || []}
                                         onClose={() => {
                                             removeSession(session.id);
                                             clearUsage(session.id);
@@ -425,14 +471,15 @@ export default function Page() {
                                     initialPosition={pos}
                                     dragHandle=".drag-handle"
                                 >
-                                    <div className="w-[360px] shadow-xl rounded-lg overflow-hidden">
+                                    <div className="w-[360px] rounded-xl overflow-hidden shadow-2xl">
                                         {/* Drag handle */}
-                                        <div className="drag-handle h-6 bg-gray-100 dark:bg-gray-800 cursor-grab active:cursor-grabbing flex items-center justify-center">
-                                            <div className="w-8 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
+                                        <div className="drag-handle h-6 cursor-grab active:cursor-grabbing flex items-center justify-center bg-[color:var(--ac-surface-strong)] border border-[color:var(--ac-border-soft)] rounded-t-xl">
+                                            <div className="w-10 h-1 rounded-full bg-[color:var(--ac-text-muted)]/70" />
                                         </div>
                                         <ChatPanel
                                             ref={(ref) => registerPanelRef(session.id, ref)}
                                             session={session}
+                                            initialMessages={sessionMessages.get(session.id) || []}
                                             onClose={() => {
                                                 removeSession(session.id);
                                                 clearUsage(session.id);
@@ -451,7 +498,7 @@ export default function Page() {
             </div>
 
             {/* Bottom smart input */}
-            <div className="border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
+            <div className="input-dock p-3 sm:p-4">
                 <div className="max-w-3xl mx-auto">
                     <SmartInput
                         onSubmit={broadcastMessage}
@@ -491,9 +538,34 @@ export default function Page() {
                 onClose={() => setSettingsOpen(false)}
             />
 
+            {/* Protocol Board */}
+            <ProtocolBoard
+                isOpen={isProtocolOpen}
+                onClose={() => setProtocolOpen(false)}
+            />
+
+            {/* Session Insights */}
+            <SessionInsightsPanel
+                isOpen={isInsightsOpen}
+                onClose={() => setInsightsOpen(false)}
+                sessions={sessions.map((session) => ({
+                    id: session.id,
+                    modelId: session.modelId,
+                    title: session.title,
+                }))}
+                sessionMessages={sessionMessages}
+                tokenUsage={tokenUsage}
+            />
+
+            {/* Routing Trace */}
+            <DecisionTracePanel
+                isOpen={isTraceOpen}
+                onClose={() => setTraceOpen(false)}
+            />
+
             {/* Bounce/Debate Overlay */}
             {isBounceOpen && (
-                <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 px-4 bg-black/50 backdrop-blur-sm overflow-y-auto">
+                <div className="fixed inset-0 z-50 flex items-start justify-center pt-14 px-4 bg-black/60 backdrop-blur-md overflow-y-auto">
                     <div className="w-full max-w-4xl mb-8 grid grid-cols-1 lg:grid-cols-2 gap-4">
                         {/* Controller */}
                         <div className="lg:col-span-1">
@@ -513,7 +585,7 @@ export default function Page() {
                     {/* Close button */}
                     <button
                         onClick={handleBounceCancel}
-                        className="fixed top-4 right-4 p-2 bg-white dark:bg-gray-800 rounded-full shadow-lg text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                        className="control-chip fixed top-4 right-4 p-2"
                     >
                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />

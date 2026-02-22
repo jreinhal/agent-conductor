@@ -1,156 +1,381 @@
-import { streamText, UIMessage, convertToModelMessages } from 'ai';
-import { getModel } from '@/lib/ai';
+import { randomUUID } from 'crypto';
+import { runLocalCliChat } from '@/lib/cli-chat';
+import { decideModelRoute } from '@/lib/decision-router';
+import { appendDecisionTraceEntry, type DecisionTraceAttempt } from '@/lib/decision-trace-store';
+import { SimpleCircuitBreaker } from '@/lib/simple-circuit-breaker';
 
-export const maxDuration = 60; // Allow 60 seconds for generation
+export const maxDuration = 300;
+const ROUTED_MODEL_TIMEOUT_MS = 130_000;
+const MODEL_BREAKER_FAILURE_THRESHOLD = 2;
+const MODEL_BREAKER_COOLDOWN_MS = 45_000;
+const MODEL_BREAKERS = new Map<string, SimpleCircuitBreaker>();
 
-// Error classification helper
-function classifyError(error: unknown): { code: string; message: string; status: number } {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const lowerMessage = errorMessage.toLowerCase();
+interface UIMessageLike {
+    role?: string;
+    content?: string;
+    parts?: Array<{ type?: string; text?: string }>;
+}
 
-    // Rate limiting
-    if (lowerMessage.includes('rate limit') || lowerMessage.includes('too many requests') || lowerMessage.includes('429')) {
-        return {
-            code: 'RATE_LIMIT',
-            message: 'Rate limit exceeded. Please wait a moment before trying again.',
-            status: 429
-        };
+interface ChatRequestBody {
+    messages?: UIMessageLike[];
+    model?: string;
+    system?: string;
+    sessionId?: string;
+    requestId?: string;
+}
+
+function extractLatestUserPreview(messages: UIMessageLike[]): string {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+        const message = messages[i];
+        if ((message.role || 'user') !== 'user') continue;
+
+        const content = typeof message.content === 'string'
+            ? message.content
+            : Array.isArray(message.parts)
+                ? message.parts
+                    .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+                    .map((part) => part.text as string)
+                    .join(' ')
+                : '';
+
+        const normalized = content.replace(/\s+/g, ' ').trim();
+        return normalized.slice(0, 220);
+    }
+    return '';
+}
+
+function extractLatestUserMessage(messages: UIMessageLike[]): string {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+        const message = messages[i];
+        if ((message.role || 'user') !== 'user') continue;
+
+        const content = typeof message.content === 'string'
+            ? message.content
+            : Array.isArray(message.parts)
+                ? message.parts
+                    .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+                    .map((part) => part.text as string)
+                    .join(' ')
+                : '';
+
+        const normalized = content.replace(/\s+/g, ' ').trim();
+        if (normalized) return normalized;
+    }
+    return '';
+}
+
+function getModelBreaker(modelId: string): SimpleCircuitBreaker {
+    let breaker = MODEL_BREAKERS.get(modelId);
+    if (!breaker) {
+        breaker = new SimpleCircuitBreaker({
+            failureThreshold: MODEL_BREAKER_FAILURE_THRESHOLD,
+            cooldownMs: MODEL_BREAKER_COOLDOWN_MS,
+        });
+        MODEL_BREAKERS.set(modelId, breaker);
+    }
+    return breaker;
+}
+
+function normalizeQualityText(value: string): string {
+    return value.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function isActionablePrompt(prompt: string): boolean {
+    const normalized = normalizeQualityText(prompt);
+    if (normalized.split(' ').length < 4) return false;
+    return /reply with|answer with|return|what is|who is|when is|where is|how many|calculate|write|generate|summarize|fix|debug|compare|explain/i.test(normalized);
+}
+
+function isClarificationLoop(text: string): boolean {
+    return /could you clarify|can you clarify|what do you mean|are you referring to|something else\?/i.test(text);
+}
+
+function violatesStrictShape(prompt: string, response: string): boolean {
+    const normalizedPrompt = normalizeQualityText(prompt);
+    const normalizedResponse = response.trim();
+
+    if (/model name only/.test(normalizedPrompt)) {
+        const tokenCount = normalizedResponse.split(/\s+/).filter(Boolean).length;
+        return tokenCount > 8 || normalizedResponse.includes('?');
     }
 
-    // Authentication errors
-    if (lowerMessage.includes('api key') || lowerMessage.includes('unauthorized') || lowerMessage.includes('401') || lowerMessage.includes('invalid_api_key')) {
-        return {
-            code: 'INVALID_API_KEY',
-            message: 'Invalid or missing API key. Check your .env.local configuration.',
-            status: 401
-        };
+    if (/one word only|return one word/.test(normalizedPrompt)) {
+        const tokenCount = normalizedResponse.split(/\s+/).filter(Boolean).length;
+        return tokenCount !== 1;
     }
 
-    // Network/connection errors
-    if (lowerMessage.includes('network') || lowerMessage.includes('econnrefused') || lowerMessage.includes('fetch failed') || lowerMessage.includes('timeout')) {
-        return {
-            code: 'NETWORK_ERROR',
-            message: 'Network error. Check your internet connection or the AI provider status.',
-            status: 503
-        };
+    if (/only the number|return only the number/.test(normalizedPrompt)) {
+        return !/^\s*-?\d+(\.\d+)?\s*$/.test(normalizedResponse);
     }
 
-    // Model not found
-    if (lowerMessage.includes('model') && (lowerMessage.includes('not found') || lowerMessage.includes('does not exist'))) {
-        return {
-            code: 'MODEL_NOT_FOUND',
-            message: 'The requested model is not available. It may have been deprecated or renamed.',
-            status: 404
-        };
+    if (/only|exactly|no explanation/.test(normalizedPrompt)) {
+        return normalizedResponse.split(/\r?\n/).length > 2 || normalizedResponse.length > 120;
     }
 
-    // Content policy violations
-    if (lowerMessage.includes('content policy') || lowerMessage.includes('safety') || lowerMessage.includes('blocked')) {
-        return {
-            code: 'CONTENT_BLOCKED',
-            message: 'The request was blocked due to content policy. Please rephrase your message.',
-            status: 400
-        };
+    return false;
+}
+
+function shouldRejectForQuality(prompt: string, response: string): { reject: boolean; reason: string } {
+    const trimmed = response.trim();
+    if (!trimmed) return { reject: true, reason: 'empty-response' };
+
+    if (isActionablePrompt(prompt) && isClarificationLoop(trimmed)) {
+        return { reject: true, reason: 'clarification-loop' };
     }
 
-    // Context length exceeded
-    if (lowerMessage.includes('context length') || lowerMessage.includes('too long') || lowerMessage.includes('max tokens')) {
-        return {
-            code: 'CONTEXT_TOO_LONG',
-            message: 'The conversation is too long. Try starting a new session or shortening your messages.',
-            status: 400
-        };
+    if (violatesStrictShape(prompt, trimmed)) {
+        return { reject: true, reason: 'strict-shape-violation' };
     }
 
-    // Provider-specific errors
-    if (lowerMessage.includes('anthropic')) {
-        return {
-            code: 'ANTHROPIC_ERROR',
-            message: `Anthropic API error: ${errorMessage}`,
-            status: 502
-        };
-    }
-    if (lowerMessage.includes('openai')) {
-        return {
-            code: 'OPENAI_ERROR',
-            message: `OpenAI API error: ${errorMessage}`,
-            status: 502
-        };
-    }
-    if (lowerMessage.includes('google') || lowerMessage.includes('gemini')) {
-        return {
-            code: 'GOOGLE_ERROR',
-            message: `Google AI error: ${errorMessage}`,
-            status: 502
-        };
-    }
+    return { reject: false, reason: 'ok' };
+}
 
-    // Generic provider error
-    return {
-        code: 'PROVIDER_ERROR',
-        message: errorMessage || 'An unexpected error occurred with the AI provider.',
-        status: 500
-    };
+async function safeAppendDecisionTrace(entry: Parameters<typeof appendDecisionTraceEntry>[0]) {
+    try {
+        await appendDecisionTraceEntry(entry);
+    } catch (error) {
+        console.error('[API /chat] Failed to append decision trace:', error);
+    }
+}
+
+function toSseEvent(payload: object): string {
+    return `data: ${JSON.stringify(payload)}\n\n`;
+}
+
+function createUIMessageStreamResponse(
+    text: string,
+    meta?: {
+        requestedModel: string;
+        routedModel: string;
+        routeReason: string;
+        isAuto: boolean;
+        durationMs: number;
+        attemptCount: number;
+        fallbackUsed: boolean;
+    }
+): Response {
+    const messageId = `msg_${randomUUID().replace(/-/g, '')}`;
+    const textId = `text_${randomUUID().replace(/-/g, '')}`;
+    const encoder = new TextEncoder();
+    const normalized = text.trim() || 'No output returned.';
+
+    const chunks: string[] = [
+        toSseEvent({ type: 'start', messageId }),
+        toSseEvent({ type: 'start-step' }),
+        toSseEvent({ type: 'text-start', id: textId }),
+        ...normalized
+            .match(/[\s\S]{1,1000}/g)
+            ?.map((delta) => toSseEvent({ type: 'text-delta', id: textId, delta })) || [],
+        toSseEvent({ type: 'text-end', id: textId }),
+        toSseEvent({ type: 'finish-step' }),
+        toSseEvent({ type: 'finish', finishReason: 'stop' }),
+        'data: [DONE]\n\n',
+    ];
+
+    const stream = new ReadableStream({
+        start(controller) {
+            for (const chunk of chunks) {
+                controller.enqueue(encoder.encode(chunk));
+            }
+            controller.close();
+        },
+    });
+
+    return new Response(stream, {
+        headers: {
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            Connection: 'keep-alive',
+            ...(meta ? {
+                'X-AgentConductor-Requested-Model': meta.requestedModel,
+                'X-AgentConductor-Routed-Model': meta.routedModel,
+                'X-AgentConductor-Route-Reason': meta.routeReason,
+                'X-AgentConductor-Route-Mode': meta.isAuto ? 'auto' : 'explicit',
+                'X-AgentConductor-Duration-Ms': String(meta.durationMs),
+                'X-AgentConductor-Attempt-Count': String(meta.attemptCount),
+                'X-AgentConductor-Fallback-Used': String(meta.fallbackUsed),
+            } : {}),
+        },
+    });
+}
+
+function createErrorStreamResponse(errorText: string): Response {
+    const messageId = `msg_${randomUUID().replace(/-/g, '')}`;
+    const encoder = new TextEncoder();
+    const chunks: string[] = [
+        toSseEvent({ type: 'start', messageId }),
+        toSseEvent({ type: 'start-step' }),
+        toSseEvent({ type: 'error', errorText }),
+        toSseEvent({ type: 'finish-step' }),
+        toSseEvent({ type: 'finish', finishReason: 'other' }),
+        'data: [DONE]\n\n',
+    ];
+
+    const stream = new ReadableStream({
+        start(controller) {
+            for (const chunk of chunks) {
+                controller.enqueue(encoder.encode(chunk));
+            }
+            controller.close();
+        },
+    });
+
+    return new Response(stream, {
+        status: 200,
+        headers: {
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            Connection: 'keep-alive',
+        },
+    });
+}
+
+async function runWithTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutLabel: string): Promise<T> {
+    let timeoutId: NodeJS.Timeout | undefined;
+
+    try {
+        return await Promise.race([
+            promise,
+            new Promise<T>((_, reject) => {
+                timeoutId = setTimeout(() => {
+                    reject(new Error(`Timed out waiting for ${timeoutLabel} after ${Math.round(timeoutMs / 1000)}s`));
+                }, timeoutMs);
+            }),
+        ]);
+    } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+    }
 }
 
 export async function POST(req: Request) {
     try {
-        const body = await req.json();
-        const { messages, model, system } = body as {
-            messages?: UIMessage[];
-            model?: string;
-            system?: string;
-        };
+        const startedAt = Date.now();
+        const body = (await req.json()) as ChatRequestBody;
+        const messages = Array.isArray(body.messages) ? body.messages : [];
+        const requestedModel = body.model || 'gpt-5.3-codex';
+        const requestId = typeof body.requestId === 'string' ? body.requestId.trim() : '';
+        const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : '';
 
-        // Validate required fields
-        if (!messages || !Array.isArray(messages)) {
-            return Response.json(
-                { error: { code: 'INVALID_REQUEST', message: 'Messages array is required' } },
-                { status: 400 }
-            );
+        if (messages.length === 0) {
+            return createErrorStreamResponse('No messages were provided.');
         }
 
-        // Get the model (this can throw if model not found)
-        let selectedModel;
-        try {
-            selectedModel = getModel(model || 'gpt-4o-mini');
-        } catch (modelError) {
-            return Response.json(
-                { error: { code: 'MODEL_NOT_FOUND', message: `Model "${model}" not found in registry` } },
-                { status: 404 }
-            );
-        }
-
-        const modelMessages = await convertToModelMessages(messages);
-
-        const result = await streamText({
-            model: selectedModel,
-            messages: modelMessages,
-            system: system || "You are a helpful AI assistant in the Agent Conductor system. Be concise and precise.",
-            // Add abort signal for better timeout handling
-            abortSignal: AbortSignal.timeout(55000), // 55s to leave buffer before maxDuration
+        const decision = decideModelRoute({
+            requestedModel,
+            messages,
+            system: body.system,
         });
 
-        return result.toUIMessageStreamResponse();
+        const candidates = [decision.selectedModel, ...decision.fallbackModels];
+        let routedModel = decision.selectedModel;
+        let text = '';
+        let lastError: unknown;
+        const attempts: DecisionTraceAttempt[] = [];
+        const latestUserMessagePreview = extractLatestUserPreview(messages);
+        const latestUserMessage = extractLatestUserMessage(messages);
 
-    } catch (error) {
-        console.error('[API /chat] Error:', error);
+        for (const candidate of candidates) {
+            const breaker = getModelBreaker(candidate);
+            if (!breaker.allowRequest()) {
+                const snapshot = breaker.snapshot();
+                attempts.push({
+                    modelId: candidate,
+                    ok: false,
+                    error: `circuit-open:${snapshot.cooldownRemainingMs}`,
+                });
+                continue;
+            }
 
-        const classified = classifyError(error);
+            try {
+                text = await runWithTimeout(
+                    runLocalCliChat(candidate, messages, body.system),
+                    ROUTED_MODEL_TIMEOUT_MS,
+                    candidate
+                );
 
-        return Response.json(
-            {
-                error: {
-                    code: classified.code,
-                    message: classified.message,
+                if (latestUserMessage && decision.isAuto) {
+                    const qualityGate = shouldRejectForQuality(latestUserMessage, text);
+                    if (qualityGate.reject) {
+                        throw new Error(`quality-gate:${qualityGate.reason}`);
+                    }
                 }
-            },
-            { status: classified.status }
-        );
+
+                breaker.recordSuccess();
+                routedModel = candidate;
+                lastError = undefined;
+                attempts.push({ modelId: candidate, ok: true });
+                break;
+            } catch (error) {
+                breaker.recordFailure();
+                lastError = error;
+                attempts.push({
+                    modelId: candidate,
+                    ok: false,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+                if (!decision.isAuto) {
+                    throw error;
+                }
+            }
+        }
+
+        if (!text) {
+            const finalError = lastError || new Error('No routed model produced a response.');
+            await safeAppendDecisionTrace({
+                id: `trace_${randomUUID().replace(/-/g, '')}`,
+                createdAt: new Date().toISOString(),
+                requestId: requestId || undefined,
+                sessionId: sessionId || undefined,
+                requestedModel,
+                selectedModel: decision.selectedModel,
+                executedModel: routedModel,
+                fallbackModels: decision.fallbackModels,
+                isAuto: decision.isAuto,
+                reason: decision.reason,
+                scores: decision.scores,
+                status: 'failed',
+                attempts,
+                durationMs: Date.now() - startedAt,
+                latestUserMessagePreview,
+            });
+            throw finalError;
+        }
+
+        const durationMs = Date.now() - startedAt;
+        await safeAppendDecisionTrace({
+            id: `trace_${randomUUID().replace(/-/g, '')}`,
+            createdAt: new Date().toISOString(),
+            requestId: requestId || undefined,
+            sessionId: sessionId || undefined,
+            requestedModel,
+            selectedModel: decision.selectedModel,
+            executedModel: routedModel,
+            fallbackModels: decision.fallbackModels,
+            isAuto: decision.isAuto,
+            reason: decision.reason,
+            scores: decision.scores,
+            status: 'success',
+            attempts,
+            durationMs,
+            latestUserMessagePreview,
+        });
+
+        return createUIMessageStreamResponse(text, {
+            requestedModel,
+            routedModel,
+            routeReason: decision.reason,
+            isAuto: decision.isAuto,
+            durationMs,
+            attemptCount: attempts.length,
+            fallbackUsed: routedModel !== decision.selectedModel,
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error('[API /chat] CLI error:', error);
+        return createErrorStreamResponse(message || 'Failed to run local CLI model.');
     }
 }
 
-// Handle OPTIONS for CORS if needed
 export async function OPTIONS() {
     return new Response(null, {
         status: 204,

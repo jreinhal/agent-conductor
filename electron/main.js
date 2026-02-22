@@ -1,15 +1,28 @@
 const { app, BrowserWindow, Tray, Menu, nativeImage, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { spawn } = require('child_process');
 const http = require('http');
 
 // Conditionally load electron-store and electron-updater (may not be available in dev)
 let Store, autoUpdater;
 try {
-    Store = require('electron-store');
+    const electronStoreModule = require('electron-store');
+    Store = typeof electronStoreModule === 'function'
+        ? electronStoreModule
+        : electronStoreModule?.default;
+    if (typeof Store !== 'function') {
+        Store = undefined;
+        console.warn('electron-store loaded but constructor export was not found; window state persistence disabled.');
+    }
+} catch (e) {
+    console.log('electron-store unavailable; window state persistence disabled.');
+}
+
+try {
     autoUpdater = require('electron-updater').autoUpdater;
 } catch (e) {
-    console.log('Optional dependencies not available (dev mode)');
+    console.log('electron-updater unavailable; auto-update disabled.');
 }
 
 let mainWindow;
@@ -20,13 +33,18 @@ let PORT = 3000;
 // Initialize store for window state persistence
 let store;
 if (Store) {
-    store = new Store({
-        defaults: {
-            windowBounds: { width: 1280, height: 800 },
-            windowPosition: null,
-            windowMaximized: false,
-        }
-    });
+    try {
+        store = new Store({
+            defaults: {
+                windowBounds: { width: 1280, height: 800 },
+                windowPosition: null,
+                windowMaximized: false,
+            }
+        });
+    } catch (error) {
+        console.warn('Failed to initialize electron-store; continuing without persisted window state.', error?.message || error);
+        store = null;
+    }
 }
 
 // Function to find a free port
@@ -92,10 +110,38 @@ const startServer = async () => {
     PORT = await findFreePort(3000);
     console.log(`Starting local server on port ${PORT}...`);
 
-    const scriptPath = path.join(__dirname, '../.next/standalone/server.js');
+    const standaloneRoot = path.join(__dirname, '../.next/standalone');
+    const directServerPath = path.join(standaloneRoot, 'server.js');
+
+    let scriptPath = directServerPath;
+    let serverCwd = standaloneRoot;
+
+    if (!fs.existsSync(directServerPath)) {
+        const nestedDir = fs.existsSync(standaloneRoot)
+            ? fs.readdirSync(standaloneRoot, { withFileTypes: true })
+                .find((entry) => entry.isDirectory() && fs.existsSync(path.join(standaloneRoot, entry.name, 'server.js')))
+            : null;
+
+        if (nestedDir) {
+            serverCwd = path.join(standaloneRoot, nestedDir.name);
+            scriptPath = path.join(serverCwd, 'server.js');
+        }
+    }
+
+    if (!fs.existsSync(scriptPath)) {
+        throw new Error(`Standalone server entrypoint not found. Expected server.js under ${standaloneRoot}`);
+    }
+
+    const staticSource = path.join(__dirname, '../.next/static');
+    const staticTarget = path.join(serverCwd, '.next/static');
+    if (fs.existsSync(staticSource) && !fs.existsSync(staticTarget)) {
+        fs.mkdirSync(path.dirname(staticTarget), { recursive: true });
+        fs.cpSync(staticSource, staticTarget, { recursive: true });
+        console.log(`[Server]: copied static assets to ${staticTarget}`);
+    }
 
     serverProcess = spawn('node', [scriptPath], {
-        cwd: path.join(__dirname, '../.next/standalone'),
+        cwd: serverCwd,
         env: { ...process.env, PORT: PORT, NODE_ENV: 'production' },
         stdio: 'pipe'
     });

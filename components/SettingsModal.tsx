@@ -6,6 +6,7 @@ interface ProviderConfig {
     id: string;
     name: string;
     accountUrl: string;
+    subscriptionUrl?: string;
     docsUrl: string;
     icon: React.ReactNode;
     envVar: string;
@@ -16,6 +17,7 @@ const PROVIDERS: ProviderConfig[] = [
         id: 'openai',
         name: 'OpenAI',
         accountUrl: 'https://platform.openai.com/settings/organization/billing/overview',
+        subscriptionUrl: 'https://platform.openai.com/settings/organization/limits',
         docsUrl: 'https://platform.openai.com/docs',
         envVar: 'OPENAI_API_KEY',
         icon: (
@@ -27,7 +29,8 @@ const PROVIDERS: ProviderConfig[] = [
     {
         id: 'anthropic',
         name: 'Anthropic',
-        accountUrl: 'https://console.anthropic.com/settings/billing',
+        accountUrl: 'https://platform.claude.com/settings/billing',
+        subscriptionUrl: 'https://platform.claude.com/settings/billing',
         docsUrl: 'https://docs.anthropic.com',
         envVar: 'ANTHROPIC_API_KEY',
         icon: (
@@ -40,6 +43,7 @@ const PROVIDERS: ProviderConfig[] = [
         id: 'google',
         name: 'Google AI',
         accountUrl: 'https://aistudio.google.com/app/plan_information',
+        subscriptionUrl: 'https://aistudio.google.com/app/plan_information',
         docsUrl: 'https://ai.google.dev/docs',
         envVar: 'GOOGLE_GENERATIVE_AI_API_KEY',
         icon: (
@@ -55,6 +59,7 @@ const PROVIDERS: ProviderConfig[] = [
         id: 'xai',
         name: 'xAI (Grok)',
         accountUrl: 'https://console.x.ai/team',
+        subscriptionUrl: 'https://console.x.ai/team',
         docsUrl: 'https://docs.x.ai',
         envVar: 'XAI_API_KEY',
         icon: (
@@ -88,28 +93,33 @@ interface SettingsModalProps {
     onClose: () => void;
 }
 
+function readStoredConnections(): Record<string, boolean> {
+    if (typeof window === 'undefined') return {};
+    try {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw) as unknown;
+        if (!parsed || typeof parsed !== 'object') return {};
+        return parsed as Record<string, boolean>;
+    } catch {
+        return {};
+    }
+}
+
+function readStoredTheme(): Theme {
+    if (typeof window === 'undefined') return 'dark';
+    const stored = window.localStorage.getItem(THEME_KEY);
+    if (stored === 'light' || stored === 'dark' || stored === 'system') {
+        return stored;
+    }
+    return 'dark';
+}
+
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-    const [connections, setConnections] = useState<Record<string, boolean>>({});
-    const [pendingSignIn, setPendingSignIn] = useState<string | null>(null);
-    const [theme, setTheme] = useState<Theme>('system');
+    const [connections, setConnections] = useState<Record<string, boolean>>(() => readStoredConnections());
+    const [pendingSignIns, setPendingSignIns] = useState<Record<string, boolean>>({});
+    const [theme, setTheme] = useState<Theme>(() => readStoredTheme());
     const [activeTab, setActiveTab] = useState<SettingsTab>('providers');
-
-    // Load saved settings from localStorage
-    useEffect(() => {
-        const savedConnections = localStorage.getItem(STORAGE_KEY);
-        if (savedConnections) {
-            try {
-                setConnections(JSON.parse(savedConnections));
-            } catch {
-                setConnections({});
-            }
-        }
-
-        const savedTheme = localStorage.getItem(THEME_KEY) as Theme;
-        if (savedTheme) {
-            setTheme(savedTheme);
-        }
-    }, []);
 
     // Apply theme
     useEffect(() => {
@@ -137,18 +147,27 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
     const handleSignIn = (providerId: string, accountUrl: string) => {
         window.open(accountUrl, '_blank', 'noopener,noreferrer');
-        setPendingSignIn(providerId);
+        setPendingSignIns((prev) => ({ ...prev, [providerId]: true }));
     };
 
     const confirmConnection = (providerId: string) => {
         const updated = { ...connections, [providerId]: true };
         saveConnections(updated);
-        setPendingSignIn(null);
+        setPendingSignIns((prev) => {
+            const next = { ...prev };
+            delete next[providerId];
+            return next;
+        });
     };
 
     const disconnect = (providerId: string) => {
         const updated = { ...connections, [providerId]: false };
         saveConnections(updated);
+        setPendingSignIns((prev) => {
+            const next = { ...prev };
+            delete next[providerId];
+            return next;
+        });
     };
 
     const openExternalLink = (url: string) => {
@@ -191,7 +210,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
     return (
         <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-[8px]"
+            className="ac-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
             onClick={onClose}
             style={{
                 animation: 'fadeIn 300ms cubic-bezier(0.25, 0.1, 0.25, 1) forwards',
@@ -199,39 +218,42 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             }}
         >
             <div
-                className="bg-white dark:bg-[#14141a] rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border border-gray-200 dark:border-[#2a2a38]"
+                className="ac-modal-shell rounded-2xl w-full max-w-2xl overflow-hidden"
                 onClick={(e) => e.stopPropagation()}
                 style={{ animation: 'modalEnter 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards' }}
             >
                 {/* Header */}
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-[#1f1f2a]">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-[color:var(--ac-border-soft)]">
                     <div className="flex items-center gap-3">
-                        <div className="p-2.5 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200">
+                        <div
+                            className="p-2.5 rounded-xl shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200"
+                            style={{ background: 'linear-gradient(135deg, var(--ac-accent), var(--ac-accent-strong))', color: '#d9f4ff' }}
+                        >
                             <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                             </svg>
                         </div>
                         <div>
-                            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Settings</h2>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                            <h2 className="text-lg font-semibold text-[color:var(--ac-text)]">Settings</h2>
+                            <p className="text-xs text-[color:var(--ac-text-dim)] mt-0.5">
                                 Configure your Agent Conductor
                             </p>
                         </div>
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-[#2a2a38] transition-all duration-250 hover:scale-105 active:scale-95"
+                        className="control-chip p-2 transition-all duration-250 hover:scale-105 active:scale-95"
                         style={{ transitionTimingFunction: 'cubic-bezier(0.175, 0.885, 0.32, 1.1)' }}
                     >
-                        <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
                         </svg>
                     </button>
                 </div>
 
                 {/* Tabs - iOS segmented control style */}
-                <div className="flex border-b border-gray-200 dark:border-[#1f1f2a] px-4">
+                <div className="flex border-b border-[color:var(--ac-border-soft)] px-4">
                     {TABS.map((tab) => (
                         <button
                             key={tab.id}
@@ -240,8 +262,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 relative flex items-center gap-2 px-4 py-3 text-sm font-medium
                                 transition-colors duration-200
                                 ${activeTab === tab.id
-                                    ? 'text-blue-600 dark:text-blue-400'
-                                    : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 active:scale-[0.97]'}
+                                    ? 'text-[color:var(--ac-text)]'
+                                    : 'text-[color:var(--ac-text-muted)] hover:text-[color:var(--ac-text-dim)] active:scale-[0.97]'}
                             `}
                             style={{
                                 transitionTimingFunction: 'cubic-bezier(0.25, 0.1, 0.25, 1)',
@@ -257,8 +279,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             {tab.label}
                             {activeTab === tab.id && (
                                 <span
-                                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 rounded-full"
-                                    style={{ animation: 'slideInUp 250ms cubic-bezier(0.32, 0.72, 0, 1) forwards' }}
+                                    className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full"
+                                    style={{
+                                        background: 'var(--ac-accent)',
+                                        animation: 'slideInUp 250ms cubic-bezier(0.32, 0.72, 0, 1) forwards',
+                                    }}
                                 />
                             )}
                         </button>
@@ -270,13 +295,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     {activeTab === 'providers' && (
                         <div className="p-4 space-y-2" style={{ animation: 'fadeIn 250ms cubic-bezier(0.25, 0.1, 0.25, 1) forwards' }}>
                             <div className="px-2 pb-3 flex items-center justify-between">
-                                <span className="text-xs text-gray-500 dark:text-gray-400">
+                                <span className="text-xs text-[color:var(--ac-text-dim)]">
                                     {connectedCount} of {PROVIDERS.length} providers connected
                                 </span>
                             </div>
                             {PROVIDERS.map(provider => {
                                 const isConnected = connections[provider.id];
-                                const isPending = pendingSignIn === provider.id;
+                                const isPending = !!pendingSignIns[provider.id];
 
                                 return (
                                     <div
@@ -286,7 +311,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                 ? 'border-emerald-200 dark:border-emerald-800/50 bg-emerald-50/50 dark:bg-emerald-900/10'
                                                 : isPending
                                                 ? 'border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-900/10'
-                                                : 'border-gray-200 dark:border-[#2a2a38] bg-gray-50/50 dark:bg-[#18181f]/50 hover:border-gray-300 dark:hover:border-[#3a3a48]'
+                                                : 'ac-soft-surface hover:border-[color:var(--ac-border)]'
                                         }`}
                                     >
                                         <div className="flex items-center justify-between">
@@ -301,7 +326,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                     {provider.icon}
                                                 </div>
                                                 <div>
-                                                    <h3 className="font-medium text-gray-900 dark:text-gray-100">{provider.name}</h3>
+                                                    <h3 className="font-medium text-[color:var(--ac-text)]">{provider.name}</h3>
                                                     <div className="flex items-center gap-2 mt-0.5">
                                                         {isConnected ? (
                                                             <span className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
@@ -314,7 +339,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                                 Confirm sign-in
                                                             </span>
                                                         ) : (
-                                                            <span className="text-xs text-gray-400 dark:text-gray-500 font-mono">
+                                                            <span className="text-xs text-[color:var(--ac-text-muted)] font-mono">
                                                                 {provider.envVar}
                                                             </span>
                                                         )}
@@ -324,19 +349,31 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                             <div className="flex items-center gap-2">
                                                 <button
                                                     onClick={() => openExternalLink(provider.docsUrl)}
-                                                    className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-[#2a2a38] transition-colors"
+                                                    className="control-chip p-1.5 text-[color:var(--ac-text-muted)] hover:text-[color:var(--ac-text)]"
                                                     title="Documentation"
                                                 >
                                                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                                     </svg>
                                                 </button>
+                                                {provider.subscriptionUrl && (
+                                                    <button
+                                                        onClick={() => openExternalLink(provider.subscriptionUrl)}
+                                                        className="control-chip px-3 py-1.5 text-xs font-medium flex items-center gap-1.5"
+                                                        title="Verify billing and model access"
+                                                    >
+                                                        Verify Access
+                                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                                        </svg>
+                                                    </button>
+                                                )}
 
                                                 {isConnected ? (
                                                     <>
                                                         <button
                                                             onClick={() => openExternalLink(provider.accountUrl)}
-                                                            className="px-3 py-1.5 text-xs font-medium rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-[#2a2a38] transition-colors flex items-center gap-1.5"
+                                                            className="control-chip px-3 py-1.5 text-xs font-medium flex items-center gap-1.5"
                                                         >
                                                             Account
                                                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -356,14 +393,20 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                 ) : isPending ? (
                                                     <>
                                                         <button
-                                                            onClick={() => setPendingSignIn(null)}
-                                                            className="px-3 py-1.5 text-xs font-medium rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-[#2a2a38] transition-colors"
+                                                            onClick={() =>
+                                                                setPendingSignIns((prev) => {
+                                                                    const next = { ...prev };
+                                                                    delete next[provider.id];
+                                                                    return next;
+                                                                })
+                                                            }
+                                                            className="control-chip px-3 py-1.5 text-xs font-medium"
                                                         >
                                                             Cancel
                                                         </button>
                                                         <button
                                                             onClick={() => confirmConnection(provider.id)}
-                                                            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white transition-colors flex items-center gap-1.5"
+                                                            className="ac-btn-primary px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5"
                                                         >
                                                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
@@ -374,7 +417,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                 ) : (
                                                     <button
                                                         onClick={() => handleSignIn(provider.id, provider.accountUrl)}
-                                                        className="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors flex items-center gap-1.5"
+                                                        className="ac-btn-primary px-3 py-1.5 text-xs font-medium rounded-lg transition-all flex items-center gap-1.5"
                                                     >
                                                         Connect
                                                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -394,18 +437,22 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         <div className="p-6 space-y-6">
                             {/* Theme Selector */}
                             <div>
-                                <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">Theme</h3>
+                                <h3 className="text-sm font-medium text-[color:var(--ac-text)] mb-3">Theme</h3>
                                 <div className="grid grid-cols-3 gap-3">
                                     {(['light', 'dark', 'system'] as Theme[]).map((t) => (
                                         <button
                                             key={t}
                                             onClick={() => setTheme(t)}
                                             className={`
-                                                p-4 rounded-xl border-2 transition-all duration-200 flex flex-col items-center gap-2
+                                                p-4 rounded-xl transition-all duration-200 flex flex-col items-center gap-2
                                                 ${theme === t
-                                                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                                                    : 'border-gray-200 dark:border-[#2a2a38] hover:border-gray-300 dark:hover:border-[#3a3a48]'}
+                                                    ? 'border-2'
+                                                    : 'ac-soft-surface border'}
                                             `}
+                                            style={theme === t ? {
+                                                borderColor: 'var(--ac-accent)',
+                                                background: 'color-mix(in srgb, var(--ac-accent) 14%, var(--ac-surface))',
+                                            } : undefined}
                                         >
                                             {t === 'light' && (
                                                 <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
@@ -422,14 +469,14 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                 </div>
                                             )}
                                             {t === 'system' && (
-                                                <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
-                                                    <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <div className="w-10 h-10 rounded-full ac-soft-surface flex items-center justify-center">
+                                                    <svg className="w-5 h-5 text-[color:var(--ac-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                                                     </svg>
                                                 </div>
                                             )}
                                             <span className={`text-sm font-medium capitalize ${
-                                                theme === t ? 'text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'
+                                                theme === t ? 'text-[color:var(--ac-text)]' : 'text-[color:var(--ac-text-dim)]'
                                             }`}>
                                                 {t}
                                             </span>
@@ -440,22 +487,25 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
                             {/* Accent Color Preview */}
                             <div>
-                                <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">Preview</h3>
-                                <div className="p-4 rounded-xl border border-gray-200 dark:border-[#2a2a38] bg-gray-50 dark:bg-[#18181f]">
+                                <h3 className="text-sm font-medium text-[color:var(--ac-text)] mb-3">Preview</h3>
+                                <div className="p-4 rounded-xl ac-soft-surface">
                                     <div className="flex items-center gap-3 mb-3">
-                                        <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-sm font-medium">
+                                        <div
+                                            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium"
+                                            style={{ background: 'var(--ac-accent)' }}
+                                        >
                                             A
                                         </div>
                                         <div>
-                                            <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Sample Message</p>
-                                            <p className="text-xs text-gray-500 dark:text-gray-400">This is how messages appear</p>
+                                            <p className="text-sm font-medium text-[color:var(--ac-text)]">Sample Message</p>
+                                            <p className="text-xs text-[color:var(--ac-text-dim)]">This is how messages appear</p>
                                         </div>
                                     </div>
                                     <div className="flex gap-2">
-                                        <button className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-500 text-white">
+                                        <button className="ac-btn-primary px-3 py-1.5 text-xs font-medium rounded-lg">
                                             Primary
                                         </button>
-                                        <button className="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-200 dark:bg-[#2a2a38] text-gray-700 dark:text-gray-300">
+                                        <button className="control-chip px-3 py-1.5 text-xs font-medium rounded-lg">
                                             Secondary
                                         </button>
                                     </div>
@@ -480,12 +530,12 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     { keys: ['Esc'], description: 'Dismiss menu' },
                                 ].map((shortcut, i) => (
                                     <div key={i} className="flex items-center justify-between py-2">
-                                        <span className="text-sm text-gray-600 dark:text-gray-400">{shortcut.description}</span>
+                                        <span className="text-sm text-[color:var(--ac-text-dim)]">{shortcut.description}</span>
                                         <div className="flex items-center gap-1">
                                             {shortcut.keys.map((key, j) => (
                                                 <kbd
                                                     key={j}
-                                                    className="px-2 py-1 text-xs font-mono font-medium bg-gray-100 dark:bg-[#2a2a38] text-gray-600 dark:text-gray-400 rounded border border-gray-200 dark:border-[#3a3a48] shadow-sm"
+                                                    className="ac-kbd px-2 py-1 text-xs font-mono font-medium"
                                                 >
                                                     {key}
                                                 </kbd>
@@ -499,9 +549,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 </div>
 
                 {/* Footer */}
-                <div className="px-6 py-4 border-t border-gray-200 dark:border-[#1f1f2a] bg-gray-50/80 dark:bg-[#18181f]/80">
+                <div className="px-6 py-4 border-t border-[color:var(--ac-border-soft)] bg-[color:var(--ac-surface)]">
                     <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                        <div className="flex items-center gap-2 text-xs text-[color:var(--ac-text-dim)]">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
@@ -509,7 +559,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         </div>
                         <button
                             onClick={onClose}
-                            className="px-4 py-2 text-sm font-medium rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors"
+                            className="ac-btn-primary px-4 py-2 text-sm font-medium rounded-lg transition-all"
                         >
                             Done
                         </button>

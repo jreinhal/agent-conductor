@@ -113,10 +113,10 @@ export function ConsensusIndicator({ sessions }: ConsensusIndicatorProps) {
     }
 
     const colors: Record<ConsensusLevel, string> = {
-        high: 'bg-green-500',
-        medium: 'bg-yellow-500',
-        low: 'bg-red-500',
-        pending: 'bg-gray-400',
+        high: 'bg-emerald-500',
+        medium: 'bg-amber-500',
+        low: 'bg-rose-500',
+        pending: 'bg-[color:var(--ac-text-muted)]',
     };
 
     const labels: Record<ConsensusLevel, string> = {
@@ -127,18 +127,18 @@ export function ConsensusIndicator({ sessions }: ConsensusIndicatorProps) {
     };
 
     return (
-        <div className="flex items-center gap-3 px-4 py-2 bg-gray-50 dark:bg-gray-800/50 rounded-lg">
+        <div className="panel-shell flex items-center gap-3 px-4 py-2 rounded-lg">
             {/* Consensus bar */}
             <div className="flex-1">
                 <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                    <span className="text-xs font-medium text-[color:var(--ac-text-dim)]">
                         {labels[analysis.level]}
                     </span>
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-[color:var(--ac-text-muted)]">
                         {Math.round(analysis.score * 100)}%
                     </span>
                 </div>
-                <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                <div className="h-1.5 ac-soft-surface rounded-full overflow-hidden">
                     <div
                         className={`h-full ${colors[analysis.level]} transition-all duration-500`}
                         style={{ width: `${analysis.score * 100}%` }}
@@ -150,17 +150,17 @@ export function ConsensusIndicator({ sessions }: ConsensusIndicatorProps) {
             {analysis.stanceCounts && (
                 <div className="flex items-center gap-1 text-xs">
                     {analysis.stanceCounts.positive > 0 && (
-                        <span className="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded">
+                        <span className="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 rounded">
                             +{analysis.stanceCounts.positive}
                         </span>
                     )}
                     {analysis.stanceCounts.neutral > 0 && (
-                        <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded">
+                        <span className="ac-badge px-1.5 py-0.5 rounded">
                             ~{analysis.stanceCounts.neutral}
                         </span>
                     )}
                     {analysis.stanceCounts.negative > 0 && (
-                        <span className="px-1.5 py-0.5 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded">
+                        <span className="px-1.5 py-0.5 bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300 rounded">
                             -{analysis.stanceCounts.negative}
                         </span>
                     )}

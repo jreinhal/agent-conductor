@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, forwardRef, useImperativeHandle, useCallback, useState } from 'react';
+import { useRef, useEffect, forwardRef, useImperativeHandle, useCallback, useMemo, useState } from 'react';
 import { Message } from 'ai';
 import { useChat } from '@ai-sdk/react';
 import { Session } from '@/lib/types';
@@ -8,6 +8,7 @@ import { useSystemPrompt } from '@/lib/useSystemPrompt';
 
 interface ChatPanelProps {
     session: Session;
+    initialMessages?: Message[];
     onClose?: () => void;
     onMessagesUpdate?: (messages: Message[]) => void;
     onLoadingChange?: (sessionId: string, isLoading: boolean) => void;
@@ -18,6 +19,41 @@ interface ChatPanelProps {
 export interface ChatPanelRef {
     sendMessage: (content: string) => void;
     isLoading: boolean;
+}
+
+interface DecisionTraceAttempt {
+    modelId: string;
+    ok: boolean;
+    error?: string;
+}
+
+interface DecisionTraceScores {
+    codingIntent: number;
+    deepReasoning: number;
+    speedPreference: number;
+    factualPrecision: number;
+}
+
+interface DecisionTraceEntry {
+    id: string;
+    createdAt: string;
+    requestId?: string;
+    sessionId?: string;
+    requestedModel: string;
+    selectedModel: string;
+    executedModel: string;
+    fallbackModels: string[];
+    isAuto: boolean;
+    reason: string;
+    scores: DecisionTraceScores;
+    status: 'success' | 'failed';
+    attempts: DecisionTraceAttempt[];
+    durationMs: number;
+    latestUserMessagePreview?: string;
+}
+
+interface DecisionTraceLookupResponse {
+    entry: DecisionTraceEntry | null;
 }
 
 // Provider configuration with colors and icons
@@ -55,6 +91,7 @@ function extractMessageText(message: Message): string {
 
 export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
     session,
+    initialMessages = [],
     onClose,
     onMessagesUpdate,
     onLoadingChange,
@@ -64,14 +101,18 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
     const systemPrompt = useSystemPrompt(session);
     const scrollRef = useRef<HTMLDivElement>(null);
     const [isHovered, setIsHovered] = useState(false);
+    const [routeMeta, setRouteMeta] = useState<DecisionTraceEntry | null>(null);
+    const pendingRequestIdRef = useRef<string | null>(null);
+    const requestBody = useMemo(() => ({
+        model: session.modelId,
+        system: systemPrompt,
+        config: session.config,
+    }), [session.modelId, session.config, systemPrompt]);
 
     const chatHook = useChat({
+        id: session.id,
         api: '/api/chat',
-        body: {
-            model: session.modelId,
-            system: systemPrompt,
-            config: session.config
-        },
+        messages: initialMessages,
     });
 
     const {
@@ -83,12 +124,39 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
     } = chatHook;
     const isLoading = status === 'submitted' || status === 'streaming';
 
+    const loadRouteMeta = useCallback(async (requestId: string) => {
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+            try {
+                const response = await fetch(`/api/decision-trace?requestId=${encodeURIComponent(requestId)}`, {
+                    cache: 'no-store',
+                });
+                const payload = (await response.json()) as DecisionTraceLookupResponse;
+                if (payload?.entry) {
+                    setRouteMeta(payload.entry);
+                    return;
+                }
+            } catch {
+                // Best-effort UI metadata only.
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+    }, []);
+
     // Stable sendMessage function
     const sendMessage = useCallback((content: string) => {
         const text = content.trim();
         if (!text) return;
-        sendChatMessage({ text });
-    }, [sendChatMessage]);
+        const requestId = `${session.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        pendingRequestIdRef.current = requestId;
+        sendChatMessage({ text }, {
+            body: {
+                ...requestBody,
+                sessionId: session.id,
+                requestId,
+            },
+        });
+    }, [requestBody, sendChatMessage, session.id]);
 
     // Expose methods to parent
     useImperativeHandle(ref, () => ({
@@ -96,8 +164,8 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
         isLoading,
     }), [sendMessage, isLoading]);
 
-    // Track last reported message count to avoid infinite loops
-    const lastReportedCountRef = useRef(0);
+    // Track last reported message signature to avoid duplicate parent updates.
+    const lastReportedSignatureRef = useRef('');
 
     // Report loading state to parent so global input can remain reactive.
     useEffect(() => {
@@ -107,13 +175,25 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
         };
     }, [session.id, isLoading, onLoadingChange]);
 
-    // Report messages to parent only when message count changes
     useEffect(() => {
-        if (onMessagesUpdate && messages.length > 0 && messages.length !== lastReportedCountRef.current) {
-            lastReportedCountRef.current = messages.length;
-            onMessagesUpdate(messages);
-        }
-    }, [messages.length, onMessagesUpdate]);
+        if (isLoading) return;
+        const requestId = pendingRequestIdRef.current;
+        if (!requestId) return;
+        pendingRequestIdRef.current = null;
+        void loadRouteMeta(requestId);
+    }, [isLoading, loadRouteMeta]);
+
+    // Report messages to parent when message content changes.
+    useEffect(() => {
+        if (!onMessagesUpdate || messages.length === 0) return;
+        const signature = messages
+            .map((message) => `${message.id}:${message.role}:${extractMessageText(message)}`)
+            .join('||');
+
+        if (signature === lastReportedSignatureRef.current) return;
+        lastReportedSignatureRef.current = signature;
+        onMessagesUpdate(messages);
+    }, [messages, onMessagesUpdate]);
 
     // Auto-scroll
     useEffect(() => {
@@ -128,10 +208,9 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
     return (
         <div
             className={`
-                flex flex-col bg-white dark:bg-[#14141a] rounded-xl border border-gray-200 dark:border-[#2a2a38] overflow-hidden
-                shadow-sm hover:shadow-md
+                panel-shell flex flex-col rounded-2xl overflow-hidden
                 ${compact ? 'h-[400px]' : 'h-[600px]'}
-                ${isHovered ? 'border-gray-300 dark:border-[#3a3a48]' : ''}
+                ${isHovered ? 'border-[color:var(--ac-border)]' : ''}
             `}
             style={{
                 transition: 'box-shadow 300ms cubic-bezier(0.25, 0.1, 0.25, 1), border-color 250ms cubic-bezier(0.25, 0.1, 0.25, 1)'
@@ -140,7 +219,7 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
             onMouseLeave={() => setIsHovered(false)}
         >
             {/* Enhanced header with provider indicator */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-[#1f1f2a] bg-gray-50/50 dark:bg-[#18181f]/50">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[color:var(--ac-border-soft)] bg-[color:var(--ac-surface-strong)]/70">
                 <div className="flex items-center gap-3">
                     {/* Provider indicator dot with glow effect when loading */}
                     <div className="relative">
@@ -150,21 +229,48 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
                         )}
                     </div>
                     <div className="flex flex-col">
-                        <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate max-w-[180px]">
+                        <span className="text-sm font-semibold text-[color:var(--ac-text)] truncate max-w-[180px]">
                             {session.title}
                         </span>
-                        {isLoading && (
-                            <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                        {isLoading ? (
+                            <span className="text-[10px] text-[color:var(--ac-text-muted)]">
                                 Generating...
                             </span>
-                        )}
+                        ) : routeMeta ? (
+                            <span
+                                className="text-[10px] text-[color:var(--ac-text-dim)] truncate max-w-[220px]"
+                                title={`${routeMeta.requestedModel} -> ${routeMeta.executedModel} (${routeMeta.isAuto ? 'auto' : 'explicit'}) | ${routeMeta.reason}`}
+                            >
+                                {routeMeta.requestedModel}
+                                <span className="mx-1 text-[color:var(--ac-text-muted)]">{'->'}</span>
+                                {routeMeta.executedModel}
+                                <span className="mx-1 text-[color:var(--ac-text-muted)]">·</span>
+                                {routeMeta.durationMs}ms
+                                {routeMeta.executedModel !== routeMeta.selectedModel ? (
+                                    <>
+                                        <span className="mx-1 text-[color:var(--ac-text-muted)]">·</span>
+                                        fallback
+                                    </>
+                                ) : null}
+                            </span>
+                        ) : null}
                     </div>
                 </div>
                 <div className="flex items-center gap-1">
                     {error && (
                         <button
-                            onClick={() => regenerate()}
-                            className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg hover:scale-105 active:scale-95"
+                            onClick={() => {
+                                const requestId = `${session.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                                pendingRequestIdRef.current = requestId;
+                                regenerate({
+                                    body: {
+                                        ...requestBody,
+                                        sessionId: session.id,
+                                        requestId,
+                                    },
+                                });
+                            }}
+                            className="control-chip p-1.5 text-[color:var(--ac-danger)] hover:scale-105 active:scale-95"
                             style={{
                                 transition: 'transform 250ms cubic-bezier(0.175, 0.885, 0.32, 1.1), background-color 150ms cubic-bezier(0.25, 0.1, 0.25, 1)',
                                 WebkitTapHighlightColor: 'transparent'
@@ -179,7 +285,7 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
                     {onClose && (
                         <button
                             onClick={onClose}
-                            className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#2a2a38] rounded-lg active:scale-95"
+                            className="control-chip p-1.5 active:scale-95"
                             style={{
                                 transition: 'color 200ms cubic-bezier(0.25, 0.1, 0.25, 1), background-color 150ms cubic-bezier(0.25, 0.1, 0.25, 1), transform 100ms cubic-bezier(0, 0, 0.2, 1)',
                                 WebkitTapHighlightColor: 'transparent'
@@ -200,28 +306,34 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
                 style={{ WebkitOverflowScrolling: 'touch' }}
             >
                 {messages.length === 0 && !error && (
-                    <div className="h-full flex flex-col items-center justify-center text-gray-400 dark:text-gray-500">
-                        <div className="w-12 h-12 mb-3 rounded-full bg-gray-100 dark:bg-[#1f1f2a] flex items-center justify-center">
+                    <div className="h-full flex flex-col items-center justify-center text-[color:var(--ac-text-muted)]">
+                        <div className="w-12 h-12 mb-3 rounded-2xl bg-[color:var(--ac-surface-strong)] border border-[color:var(--ac-border-soft)] flex items-center justify-center">
                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                             </svg>
                         </div>
                         <p className="text-sm font-medium">Waiting for input...</p>
-                        <p className="text-xs mt-1 text-gray-400 dark:text-gray-600">Messages will appear here</p>
+                        <p className="text-xs mt-1 text-[color:var(--ac-text-muted)]">Messages will appear here</p>
                     </div>
                 )}
 
-                {error && messages.length === 0 && (
-                    <div className="p-4 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/50 rounded-xl animate-fadeIn">
+                {error && (
+                    <div
+                        className="p-4 border rounded-xl animate-fadeIn bg-[color:var(--ac-surface-strong)]"
+                        style={{ borderColor: 'color-mix(in srgb, var(--ac-danger) 55%, transparent)' }}
+                    >
                         <div className="flex items-start gap-3">
-                            <div className="p-1.5 bg-red-100 dark:bg-red-900/30 rounded-lg">
-                                <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <div
+                                className="p-1.5 rounded-lg"
+                                style={{ background: 'color-mix(in srgb, var(--ac-danger) 22%, transparent)' }}
+                            >
+                                <svg className="w-4 h-4 text-[color:var(--ac-danger)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
                             </div>
                             <div>
-                                <p className="text-sm font-medium text-red-700 dark:text-red-400">Error</p>
-                                <p className="text-sm text-red-600 dark:text-red-300 mt-0.5">{error.message}</p>
+                                <p className="text-sm font-medium text-[color:var(--ac-danger)]">Error</p>
+                                <p className="text-sm text-[color:var(--ac-text-dim)] mt-0.5">{error.message}</p>
                             </div>
                         </div>
                     </div>
@@ -241,8 +353,8 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
                             className={`
                                 max-w-[88%] rounded-2xl px-4 py-2.5 text-sm relative
                                 ${m.role === 'user'
-                                    ? 'bg-gray-100 dark:bg-[#2a2a38] text-gray-900 dark:text-gray-100 rounded-br-md'
-                                    : 'bg-white dark:bg-[#1a1a24] border border-gray-100 dark:border-[#2a2a38] text-gray-700 dark:text-gray-300 rounded-bl-md shadow-sm'}
+                                    ? 'bg-cyan-500/10 text-[color:var(--ac-text)] border border-[color:var(--ac-border-soft)] rounded-br-md'
+                                    : 'bg-[color:var(--ac-surface-strong)] border border-[color:var(--ac-border-soft)] text-[color:var(--ac-text-dim)] rounded-bl-md shadow-sm'}
                             `}
                             style={{
                                 transition: 'background-color 200ms cubic-bezier(0.25, 0.1, 0.25, 1)'
@@ -253,8 +365,9 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
                             {m.role === 'assistant' && onBounce && extractMessageText(m).trim() && (
                                 <button
                                     onClick={() => onBounce(extractMessageText(m))}
-                                    className="absolute -right-2 -bottom-2 opacity-0 group-hover:opacity-100 p-2 bg-purple-500 hover:bg-purple-600 text-white rounded-full shadow-lg hover:scale-105 active:scale-95 hover:shadow-purple-500/25"
+                                    className="absolute -right-2 -bottom-2 opacity-0 group-hover:opacity-100 p-2 rounded-full shadow-lg hover:scale-105 active:scale-95 text-white"
                                     style={{
+                                        background: 'linear-gradient(135deg, var(--ac-accent), var(--ac-accent-strong))',
                                         transition: 'opacity 200ms cubic-bezier(0.25, 0.1, 0.25, 1), transform 250ms cubic-bezier(0.175, 0.885, 0.32, 1.1), background-color 150ms cubic-bezier(0.25, 0.1, 0.25, 1)',
                                         WebkitTapHighlightColor: 'transparent'
                                     }}
@@ -271,7 +384,7 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
 
                 {isLoading && (
                     <div className="flex justify-start animate-fadeIn">
-                        <div className="px-4 py-3 bg-white dark:bg-[#1a1a24] border border-gray-100 dark:border-[#2a2a38] rounded-2xl rounded-bl-md shadow-sm">
+                        <div className="px-4 py-3 bg-[color:var(--ac-surface-strong)] border border-[color:var(--ac-border-soft)] rounded-2xl rounded-bl-md shadow-sm">
                             <div className="flex items-center gap-1.5">
                                 <div className={`w-2 h-2 rounded-full ${providerConfig.bgColor} animate-bounce`} style={{ animationDelay: '0ms' }} />
                                 <div className={`w-2 h-2 rounded-full ${providerConfig.bgColor} animate-bounce`} style={{ animationDelay: '150ms' }} />

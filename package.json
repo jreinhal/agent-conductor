@@ -14,7 +14,10 @@
     "dist": "node scripts/build-desktop.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "monitor:handoff": "node scripts/monitor-handoff-doc.mjs",
+    "check:handoff-freshness": "node scripts/check-handoff-freshness.mjs",
+    "eval:quality": "node scripts/evaluate-model-quality.mjs"
   },
   "build": {
     "appId": "com.agent.conductor",

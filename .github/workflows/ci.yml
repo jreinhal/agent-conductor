@@ -39,3 +39,24 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Start app server for quality gates
+        run: |
+          npm run dev > /tmp/agent-conductor-dev.log 2>&1 &
+          echo "DEV_SERVER_PID=$!" >> $GITHUB_ENV
+          npx wait-on http://127.0.0.1:3000
+
+      - name: Handoff freshness gate
+        env:
+          HANDOFF_DOC_PATH: README.md
+        run: npm run check:handoff-freshness -- --refresh true --maxAge 120
+
+      - name: Quality response gate (>=90%)
+        run: npm run eval:quality -- --minPassRate 90
+
+      - name: Stop app server
+        if: always()
+        run: |
+          if [ -n "${DEV_SERVER_PID:-}" ]; then
+            kill "$DEV_SERVER_PID" || true
+          fi

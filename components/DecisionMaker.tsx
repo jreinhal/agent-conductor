@@ -12,7 +12,9 @@ interface DecisionMakerProps {
 
 export function DecisionMaker({ models, activeSessionsCount, onDecide, isProcessing }: DecisionMakerProps) {
     // Default to a strong model if available
-    const defaultModel = models.find(m => m.id === 'gpt-4o' || m.id === 'claude-3-opus' || m.id === 'o1-preview')?.id || models[0]?.id;
+    const defaultModel = models.find((m) =>
+        m.id === 'gpt-5.3-codex' || m.id === 'claude-opus-4.6' || m.id === 'gemini-3-pro'
+    )?.id || models[0]?.id;
     const [selectedJudgeId, setSelectedJudgeId] = useState<string>(defaultModel);
 
     // Filter for "smart" models that make good judges (optional, but good UX)
@@ -27,15 +29,15 @@ export function DecisionMaker({ models, activeSessionsCount, onDecide, isProcess
     if (activeSessionsCount < 2) return null; // Need at least 2 to debate/synthesize
 
     return (
-        <div className="flex items-center gap-3 bg-white dark:bg-gray-900 border border-purple-200 dark:border-purple-900/30 rounded-xl p-2 pl-4 shadow-sm animate-fade-in">
+        <div className="panel-shell flex items-center gap-3 rounded-xl p-2 pl-4 animate-fade-in">
             <div className="flex flex-col">
-                <span className="text-[10px] uppercase font-bold text-purple-600 dark:text-purple-400 tracking-wider">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-[color:var(--ac-accent)]">
                     Final Decision Maker
                 </span>
                 <select
                     value={selectedJudgeId}
                     onChange={(e) => setSelectedJudgeId(e.target.value)}
-                    className="text-xs font-medium bg-transparent border-none focus:ring-0 p-0 text-gray-700 dark:text-gray-200 cursor-pointer"
+                    className="text-xs font-medium bg-transparent border-none focus:ring-0 p-0 text-[color:var(--ac-text-dim)] cursor-pointer"
                 >
                     {models.map(m => (
                         <option key={m.id} value={m.id}>
@@ -48,7 +50,7 @@ export function DecisionMaker({ models, activeSessionsCount, onDecide, isProcess
             <button
                 onClick={handleDecide}
                 disabled={isProcessing}
-                className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-4 py-2 rounded-lg flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
+                className="ac-btn-primary text-white text-xs font-bold px-4 py-2 rounded-lg flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
                 {isProcessing ? (
                     <>
