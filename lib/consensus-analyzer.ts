@@ -256,20 +256,41 @@ function normalizeVoteScore(score: number, mode: BounceConsensusMode): number {
     return Math.max(0, Math.min(1, score));
 }
 
+function normalizeStructuredLabel(value: string): string {
+    return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function extractStructuredFieldValue(content: string, fieldNames: string[]): string | null {
+    const targetLabels = new Set(fieldNames.map(normalizeStructuredLabel));
+    const lines = content.split(/\r?\n/);
+
+    for (const rawLine of lines) {
+        const line = rawLine.replace(/\*\*/g, '').trim();
+        const separator = line.indexOf(':');
+        if (separator === -1) continue;
+
+        const label = normalizeStructuredLabel(line.slice(0, separator));
+        if (!targetLabels.has(label)) continue;
+
+        const value = line.slice(separator + 1).trim();
+        if (value.length > 0) {
+            return value.slice(0, 280);
+        }
+    }
+
+    return null;
+}
+
 function extractProposedResolution(response: BounceResponse): string {
     const content = response.content || '';
-    const patterns = [
-        /(?:^|\n)\s*(?:\*\*)?proposed[_\s-]?resolution(?:\*\*)?\s*[:\-]\s*(.+)/i,
-        /(?:^|\n)\s*(?:\*\*)?final[_\s-]?recommendation(?:\*\*)?\s*[:\-]\s*(.+)/i,
-        /(?:^|\n)\s*(?:\*\*)?recommendation(?:\*\*)?\s*[:\-]\s*(.+)/i,
-        /(?:^|\n)\s*(?:\*\*)?conclusion(?:\*\*)?\s*[:\-]\s*(.+)/i,
-    ];
-
-    for (const pattern of patterns) {
-        const match = content.match(pattern);
-        if (match?.[1]) {
-            return match[1].trim().slice(0, 280);
-        }
+    const structuredValue = extractStructuredFieldValue(content, [
+        'proposed resolution',
+        'final recommendation',
+        'recommendation',
+        'conclusion',
+    ]);
+    if (structuredValue) {
+        return structuredValue;
     }
 
     if (response.keyPoints[0]) {

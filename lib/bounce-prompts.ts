@@ -296,11 +296,9 @@ export function parseStanceFromResponse(content: string): ResponseStance {
     const lower = content.toLowerCase();
     const first500 = lower.substring(0, 500); // Focus on beginning where stance is stated
 
-    const structuredStanceMatch = content.match(
-        /(?:^|\n)\s*(?:\*\*)?stance(?:\*\*)?\s*[:\-]\s*([a-z_\s-]+)/i
-    );
-    if (structuredStanceMatch) {
-        const raw = structuredStanceMatch[1].trim().toLowerCase().replace(/\s+/g, '_');
+    const structuredStance = extractStructuredLineValue(content, 'stance');
+    if (structuredStance) {
+        const raw = structuredStance.trim().toLowerCase().replace(/\s+/g, '_');
         if (raw.includes('strongly_agree')) return 'strongly_agree';
         if (raw.includes('strongly_disagree')) return 'strongly_disagree';
         if (raw.includes('agree')) return 'agree';
@@ -341,6 +339,27 @@ export function parseStanceFromResponse(content: string): ResponseStance {
     if (negativeCount > positiveCount + 2) return 'disagree';
 
     return 'neutral';
+}
+
+function extractStructuredLineValue(content: string, fieldName: string): string | null {
+    const normalizedTarget = fieldName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const lines = content.split(/\r?\n/);
+
+    for (const rawLine of lines) {
+        const line = rawLine.replace(/\*\*/g, '').trim();
+        const separator = line.indexOf(':');
+        if (separator === -1) continue;
+
+        const label = line.slice(0, separator).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (label !== normalizedTarget) continue;
+
+        const value = line.slice(separator + 1).trim();
+        if (value.length > 0) {
+            return value;
+        }
+    }
+
+    return null;
 }
 
 /**
