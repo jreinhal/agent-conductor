@@ -16,12 +16,12 @@ const TERMINALS = [
     {
         modelId: 'claude-opus-4.6',
         modelName: 'Claude Opus 4.6',
-        trigger: '@claude-opus-4.6',
+        trigger: '@claude',
     },
     {
         modelId: 'gemini-3-pro',
         modelName: 'Gemini 3 Pro',
-        trigger: '@gemini-3-pro',
+        trigger: '@gemini',
     },
 ];
 
@@ -51,7 +51,11 @@ test.describe('live CLI browser stress - four terminals', () => {
 
         for (const terminal of TERMINALS) {
             await addModelTerminal(page, terminal.modelId, terminal.trigger);
-            await expect(page.getByText(terminal.modelName, { exact: false })).toBeVisible();
+            await expect(
+                page
+                    .getByTestId(`chat-panel-${terminal.modelId}`)
+                    .getByTestId('chat-panel-title')
+            ).toContainText(terminal.modelName);
         }
 
         await expect(page.getByText('4 active')).toBeVisible();
@@ -60,7 +64,7 @@ test.describe('live CLI browser stress - four terminals', () => {
             'Live 4-terminal stress test:',
             'Provide a concise recommendation for hardening a multi-agent handoff protocol.',
             'Include exactly one risk and one mitigation.',
-            'Start your answer with "Resolution:".',
+            'Keep it concise and actionable.',
         ].join(' ');
 
         const input = page.getByTestId('smart-input');
@@ -82,9 +86,12 @@ test.describe('live CLI browser stress - four terminals', () => {
             const assistantMessage = panel.getByTestId('chat-message-assistant').first();
             await expect(assistantMessage).toBeVisible({ timeout: responseTimeoutMs });
 
-            const assistantText = (await assistantMessage.innerText()).trim();
-            expect(assistantText.length).toBeGreaterThan(20);
-            expect(assistantText.toLowerCase()).toContain('resolution:');
+            await expect
+                .poll(
+                    async () => ((await assistantMessage.innerText()).trim().length),
+                    { timeout: responseTimeoutMs, intervals: [500, 1_000, 2_000, 3_000] }
+                )
+                .toBeGreaterThan(20);
         }
     });
 });

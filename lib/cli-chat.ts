@@ -177,8 +177,8 @@ function buildCliInvocation(selection: CliSelection, prompt: string): CliInvocat
     }
 
     return {
-        // Gemini accepts stdin when prompt is provided as an empty -p seed.
-        args: ['-m', selection.model, '-p', '', '-o', 'json'],
+        // Gemini requires a non-empty -p value; real prompt content is sent on stdin.
+        args: ['-m', selection.model, '-p', '_', '-o', 'json'],
         stdinInput: prompt,
     };
 }
