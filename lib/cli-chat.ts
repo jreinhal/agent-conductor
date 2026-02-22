@@ -1,6 +1,8 @@
 import { spawn } from 'child_process';
 
-const CLI_TIMEOUT_MS = 120_000;
+const CLI_TIMEOUT_MS = Number(process.env.AC_CLI_TIMEOUT_MS || 180_000);
+const CLI_TRANSIENT_RETRY_ATTEMPTS = 1;
+const CLI_TRANSIENT_RETRY_BACKOFF_MS = 800;
 const CLI_TOOL_QUEUES = new Map<CliTool, Promise<void>>();
 const STARTUP_COMPACTION_RULE = [
     'Startup rule (mandatory): strategically compact context at regular intervals so the discussion can continue indefinitely.',
@@ -31,6 +33,10 @@ interface ProcessResult {
     stderr: string;
     code: number | null;
     signal: NodeJS.Signals | null;
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function queueByCliTool<T>(tool: CliTool, task: () => Promise<T>): Promise<T> {
@@ -359,6 +365,16 @@ function parseCliOutput(tool: CliTool, stdout: string): string {
     return parseGeminiOutput(stdout);
 }
 
+function isTransientCliError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+    return (
+        message.includes('timed out') ||
+        message.includes('etimedout') ||
+        message.includes('econnreset') ||
+        message.includes('epipe')
+    );
+}
+
 function normalizeText(value: string): string {
     return value.toLowerCase().replace(/\s+/g, ' ').trim();
 }
@@ -425,7 +441,28 @@ export async function runLocalCliChat(
         const executable = getExecutable(selection.tool);
         const prompt = buildPrompt(system, messages);
         const invocation = buildCliInvocation(selection, prompt);
-        const result = await runProcess(executable, invocation.args, invocation.stdinInput);
+        let result: ProcessResult | null = null;
+        let lastRunError: unknown;
+
+        for (let attempt = 0; attempt <= CLI_TRANSIENT_RETRY_ATTEMPTS; attempt += 1) {
+            try {
+                result = await runProcess(executable, invocation.args, invocation.stdinInput);
+                lastRunError = undefined;
+                break;
+            } catch (error) {
+                lastRunError = error;
+                const canRetry = attempt < CLI_TRANSIENT_RETRY_ATTEMPTS && isTransientCliError(error);
+                if (!canRetry) break;
+                const backoffMs = CLI_TRANSIENT_RETRY_BACKOFF_MS * (attempt + 1);
+                await sleep(backoffMs);
+            }
+        }
+
+        if (!result) {
+            throw lastRunError instanceof Error
+                ? lastRunError
+                : new Error(String(lastRunError || 'CLI process failed'));
+        }
 
         if (result.code !== 0) {
             const details = [result.stderr.trim(), result.stdout.trim()]
