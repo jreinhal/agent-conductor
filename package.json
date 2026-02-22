@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:stress": "vitest run tests/stress/**/*.test.ts",
     "monitor:handoff": "node scripts/monitor-handoff-doc.mjs",
     "check:handoff-freshness": "node scripts/check-handoff-freshness.mjs",
     "eval:quality": "node scripts/evaluate-model-quality.mjs"
