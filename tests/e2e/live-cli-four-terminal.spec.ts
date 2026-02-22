@@ -163,7 +163,7 @@ function countLabelOccurrences(text: string, label: string): number {
 
 function scoreDomainCoverage(text: string, conceptGroups: string[][]): { score: number; notes: string[]; matched: number } {
     if (conceptGroups.length === 0) {
-        return { score: 20, notes: [], matched: 0 };
+        return { score: 0, notes: [], matched: 0 };
     }
 
     const normalized = text.toLowerCase();
