@@ -14,6 +14,7 @@ interface ChatPanelProps {
     onLoadingChange?: (sessionId: string, isLoading: boolean) => void;
     onBounce?: (content: string) => void;
     compact?: boolean;
+    panelHeight?: number;
 }
 
 export interface ChatPanelRef {
@@ -97,6 +98,7 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
     onLoadingChange,
     onBounce,
     compact = false,
+    panelHeight,
 }, ref) => {
     const systemPrompt = useSystemPrompt(session);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -204,16 +206,17 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
 
     const provider = getProviderFromModel(session.modelId);
     const providerConfig = PROVIDER_CONFIG[provider] || PROVIDER_CONFIG.local;
+    const resolvedHeight = panelHeight ?? (compact ? 400 : 600);
 
     return (
         <div
             data-testid={`chat-panel-${session.modelId}`}
             className={`
-                panel-shell flex flex-col rounded-2xl overflow-hidden
-                ${compact ? 'h-[400px]' : 'h-[600px]'}
+                panel-shell flex flex-col rounded-2xl overflow-hidden min-h-0
                 ${isHovered ? 'border-[color:var(--ac-border)]' : ''}
             `}
             style={{
+                height: resolvedHeight,
                 transition: 'box-shadow 300ms cubic-bezier(0.25, 0.1, 0.25, 1), border-color 250ms cubic-bezier(0.25, 0.1, 0.25, 1)'
             }}
             onMouseEnter={() => setIsHovered(true)}

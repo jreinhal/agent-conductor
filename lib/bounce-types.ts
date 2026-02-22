@@ -67,6 +67,10 @@ export interface ParticipantConfig {
     modelId: string;
     title: string;
     systemPrompt?: string;
+    /** User-defined trust prior (1-5). Higher means stronger decision influence. */
+    userWeight?: number;
+    /** Reliability prior derived from historical outcomes (0.5-1.5 typical). */
+    reliabilityWeight?: number;
 }
 
 export const DEFAULT_BOUNCE_CONFIG: BounceConfig = {
@@ -190,6 +194,21 @@ export interface BounceResponse {
     /** Confidence in their position (if model provides it) */
     confidence: number;
 
+    /** User-defined trust prior used in weighted consensus. */
+    userWeight?: number;
+
+    /** Reliability prior used in weighted consensus. */
+    reliabilityWeight?: number;
+
+    /** Bounded confidence multiplier derived from `confidence`. */
+    confidenceModifier?: number;
+
+    /** Raw influence before normalized share capping. */
+    rawInfluence?: number;
+
+    /** Normalized influence share after capping (0.0-1.0). */
+    effectiveInfluence?: number;
+
     /** Time taken to generate */
     durationMs: number;
 
@@ -249,6 +268,31 @@ export interface ConsensusAnalysis {
         supportRatio: number;
         supporters: string[];
         dissenters: string[];
+    };
+
+    /** User-weighted consensus diagnostics and explainability metadata. */
+    influence: {
+        /** Weighted support score in [-1, 1] using stance + influence shares. */
+        weightedSupportScore: number;
+        /** Weighted support ratio in [0, 1] for threshold comparisons. */
+        weightedSupportRatio: number;
+        /** True when unweighted consensus gate passed. */
+        unweightedGatePassed: boolean;
+        /** True when weighted consensus gate passed. */
+        weightedGatePassed: boolean;
+        /** Per-model explainability breakdown. */
+        modelBreakdown: Array<{
+            sessionId: string;
+            modelId: string;
+            modelTitle: string;
+            userWeight: number;
+            reliabilityWeight: number;
+            confidenceModifier: number;
+            stanceValue: number;
+            rawInfluence: number;
+            effectiveShare: number;
+            signedContribution: number;
+        }>;
     };
 }
 

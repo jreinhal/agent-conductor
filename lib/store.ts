@@ -6,12 +6,9 @@ import { Message } from 'ai';
 import {
     BounceState,
     BounceConfig,
-    BounceRound,
-    BounceEvent,
     ParticipantConfig,
     INITIAL_BOUNCE_STATE,
     DEFAULT_BOUNCE_CONFIG,
-    ConsensusAnalysis,
     SerializedBounceSession,
     SharedKnowledgeEntry,
 } from './bounce-types';
@@ -108,6 +105,7 @@ interface AgentConductorState {
     updateBounceState: (bounce: Partial<BounceState>) => void;
     setBounceConfig: (config: Partial<BounceConfig>) => void;
     addSelectedParticipant: (participant: ParticipantConfig) => void;
+    updateSelectedParticipant: (sessionId: string, updates: Partial<ParticipantConfig>) => void;
     removeSelectedParticipant: (sessionId: string) => void;
     clearSelectedParticipants: () => void;
     addBounceToHistory: (session: SerializedBounceSession) => void;
@@ -260,6 +258,17 @@ export const useAgentStore = create<AgentConductorState>()(
                         ),
                         participant,
                     ],
+                },
+            })),
+
+            updateSelectedParticipant: (sessionId, updates) => set((state) => ({
+                debate: {
+                    ...state.debate,
+                    selectedParticipants: state.debate.selectedParticipants.map((participant) =>
+                        participant.sessionId === sessionId
+                            ? { ...participant, ...updates }
+                            : participant
+                    ),
                 },
             })),
 

@@ -125,11 +125,13 @@ export function TerminalDock({
     };
 
     const clearProcess = (processId: string) => {
-        setProcesses(prev => prev.filter(p => p.id !== processId));
-        if (activeProcessId === processId) {
-            const remaining = processes.filter(p => p.id !== processId);
-            setActiveProcessId(remaining.length > 0 ? remaining[remaining.length - 1].id : null);
-        }
+        setProcesses(prev => {
+            const remaining = prev.filter(p => p.id !== processId);
+            if (activeProcessId === processId) {
+                setActiveProcessId(remaining.length > 0 ? remaining[remaining.length - 1].id : null);
+            }
+            return remaining;
+        });
     };
 
     const runningCount = processes.filter(p => p.status === 'running').length;
@@ -176,9 +178,17 @@ export function TerminalDock({
                     {/* Process tabs */}
                     <div className="flex items-center gap-1">
                         {processes.map(process => (
-                            <button
+                            <div
                                 key={process.id}
+                                role="button"
+                                tabIndex={0}
                                 onClick={() => setActiveProcessId(process.id)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        setActiveProcessId(process.id);
+                                    }
+                                }}
                                 className={`
                                     flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors
                                     ${activeProcessId === process.id
@@ -198,13 +208,14 @@ export function TerminalDock({
                                         e.stopPropagation();
                                         clearProcess(process.id);
                                     }}
+                                    type="button"
                                     className="ml-1 text-[color:var(--ac-text-muted)] hover:text-[color:var(--ac-text)]"
                                 >
                                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
                                     </svg>
                                 </button>
-                            </button>
+                            </div>
                         ))}
                     </div>
 

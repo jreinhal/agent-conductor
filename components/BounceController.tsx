@@ -29,6 +29,7 @@ import {
 import {
     BounceEvent,
     BounceStatus,
+    SerializedBounceSession,
 } from '@/lib/bounce-types';
 
 interface BounceControllerProps {
@@ -49,11 +50,13 @@ export function BounceController({
     const bounceState = useBounceState();
     const bounceConfig = useBounceConfig();
     const selectedParticipants = useSelectedParticipants();
+    const bounceHistory = useAgentStore((state) => state.debate.bounceHistory);
 
     const {
         updateBounceState,
         setBounceConfig,
         addSelectedParticipant,
+        updateSelectedParticipant,
         removeSelectedParticipant,
         clearSelectedParticipants,
         resetBounce,
@@ -89,10 +92,9 @@ export function BounceController({
                 break;
 
             case 'ROUND_COMPLETE':
-                // Use orchestrator state as source of truth to avoid stale-closure
-                // duplication when events arrive during rapid re-renders.
+                // Always pull from orchestrator state to avoid stale closures.
                 updateBounceState({
-                    rounds: orchestratorRef.current?.getState().rounds || [...bounceState.rounds, event.round],
+                    rounds: orchestratorRef.current?.getState().rounds ?? [event.round],
                 });
                 break;
 
@@ -143,7 +145,7 @@ export function BounceController({
                 // UI updates via CONSENSUS_UPDATED and ROUND_COMPLETE
                 break;
         }
-    }, [bounceState.rounds, updateBounceState, onComplete, onCancel]);
+    }, [updateBounceState, onComplete, onCancel]);
 
     // Initialize orchestrator
     useEffect(() => {
@@ -165,13 +167,29 @@ export function BounceController({
             return;
         }
 
+        const reliabilityByModel = deriveReliabilityByModel(bounceHistory);
+        const participants = selectedParticipants.map((participant) => {
+            const userWeight = clampUserWeight(participant.userWeight);
+            const historicalReliability = reliabilityByModel.get(participant.modelId) ?? 1;
+            const providedReliability = participant.reliabilityWeight;
+            const reliabilityWeight = clampReliabilityWeight(
+                typeof providedReliability === 'number' ? providedReliability : historicalReliability
+            );
+
+            return {
+                ...participant,
+                userWeight,
+                reliabilityWeight,
+            };
+        });
+
         await orchestratorRef.current?.dispatch({
             type: 'START',
             topic,
-            participants: selectedParticipants,
+            participants,
             config: bounceConfig,
         });
-    }, [topic, selectedParticipants, bounceConfig]);
+    }, [topic, selectedParticipants, bounceConfig, bounceHistory]);
 
     // Pause/Resume
     const handlePauseResume = useCallback(async () => {
@@ -221,9 +239,18 @@ export function BounceController({
                 modelId: session.modelId,
                 title: session.title,
                 systemPrompt: session.systemPrompt,
+                userWeight: 3,
+                reliabilityWeight: 1,
             });
         }
     }, [selectedParticipants, addSelectedParticipant, removeSelectedParticipant]);
+
+    const handleWeightChange = useCallback((sessionId: string, next: string) => {
+        const parsed = Number.parseInt(next, 10);
+        updateSelectedParticipant(sessionId, {
+            userWeight: clampUserWeight(parsed),
+        });
+    }, [updateSelectedParticipant]);
 
     const isActive = bounceState.status !== 'idle' && bounceState.status !== 'complete' && bounceState.status !== 'error';
     const canStart = topic.trim().length > 0 && selectedParticipants.length >= 2 && !isActive;
@@ -322,6 +349,43 @@ export function BounceController({
                         <p className="text-xs mt-2" style={{ color: 'color-mix(in srgb, var(--ac-accent-warm) 88%, #fff 12%)' }}>
                             Select at least 2 participants to start
                         </p>
+                    )}
+
+                    {selectedParticipants.length > 0 && (
+                        <div className="mt-4 space-y-2">
+                            <p className="text-xs text-[color:var(--ac-text-muted)]">
+                                Influence Weights (1-5)
+                            </p>
+                            {selectedParticipants.map((participant) => (
+                                <div
+                                    key={`weight-${participant.sessionId}`}
+                                    className="ac-soft-surface rounded-lg px-3 py-2 flex items-center justify-between gap-3"
+                                >
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-medium text-[color:var(--ac-text)] truncate">
+                                            {participant.title}
+                                        </p>
+                                        <p className="text-xs text-[color:var(--ac-text-muted)]">
+                                            Reliability: {(participant.reliabilityWeight ?? 1).toFixed(2)}
+                                        </p>
+                                    </div>
+                                    <label className="flex items-center gap-2 text-xs text-[color:var(--ac-text-muted)]">
+                                        <span>Weight</span>
+                                        <select
+                                            value={String(clampUserWeight(participant.userWeight))}
+                                            onChange={(event) => handleWeightChange(participant.sessionId, event.target.value)}
+                                            className="ac-input px-2 py-1 text-xs w-16"
+                                        >
+                                            <option value="1">1</option>
+                                            <option value="2">2</option>
+                                            <option value="3">3</option>
+                                            <option value="4">4</option>
+                                            <option value="5">5</option>
+                                        </select>
+                                    </label>
+                                </div>
+                            ))}
+                        </div>
                     )}
                 </div>
             )}
@@ -673,6 +737,45 @@ export function BounceController({
             )}
         </div>
     );
+}
+
+function clampUserWeight(value: number | undefined): number {
+    const raw = Number.isFinite(value as number) ? Number(value) : 3;
+    return Math.max(1, Math.min(5, Math.round(raw)));
+}
+
+function clampReliabilityWeight(value: number): number {
+    if (!Number.isFinite(value)) return 1;
+    return Math.max(0.5, Math.min(1.5, value));
+}
+
+function deriveReliabilityByModel(history: SerializedBounceSession[]): Map<string, number> {
+    const stats = new Map<string, { hits: number; total: number }>();
+
+    for (const session of history) {
+        const finalRound = session.rounds[session.rounds.length - 1];
+        if (!finalRound) continue;
+
+        const supporters = new Set(finalRound.consensusAtEnd.proposalConvergence.supporters);
+        for (const response of finalRound.responses) {
+            const current = stats.get(response.modelId) || { hits: 0, total: 0 };
+            current.total += 1;
+            if (supporters.has(response.participantSessionId)) {
+                current.hits += 1;
+            }
+            stats.set(response.modelId, current);
+        }
+    }
+
+    const result = new Map<string, number>();
+    for (const [modelId, { hits, total }] of stats.entries()) {
+        // Laplace smoothing to avoid extreme reliability from tiny samples.
+        const smoothedRate = (hits + 1) / (total + 2);
+        const reliability = 0.75 + smoothedRate * 0.5;
+        result.set(modelId, clampReliabilityWeight(reliability));
+    }
+
+    return result;
 }
 
 // Status badge component
