@@ -15,6 +15,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:stress": "vitest run tests/stress",
+    "test:stress:live": "cross-env LIVE_CLI_E2E=1 playwright test tests/e2e/live-cli-four-terminal.spec.ts",
+    "test:stress:live:headed": "cross-env LIVE_CLI_E2E=1 PW_HEADFUL=1 playwright test tests/e2e/live-cli-four-terminal.spec.ts",
     "monitor:handoff": "node scripts/monitor-handoff-doc.mjs",
     "check:handoff-freshness": "node scripts/check-handoff-freshness.mjs",
     "eval:quality": "node scripts/evaluate-model-quality.mjs"
@@ -98,6 +101,7 @@
     "zustand": "^5.0.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/proper-lockfile": "^4.1.4",

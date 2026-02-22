@@ -310,6 +310,7 @@ export function SmartInput({
                         {suggestions.map((suggestion, index) => (
                             <button
                                 key={`${suggestion.type}-${suggestion.id}`}
+                                data-testid={`smart-suggestion-${suggestion.id}`}
                                 data-selected={selectedIndex === index}
                                 onClick={() => selectSuggestion(suggestion)}
                                 className={`
@@ -374,6 +375,7 @@ export function SmartInput({
             >
                 <textarea
                     ref={textareaRef}
+                    data-testid="smart-input"
                     value={input}
                     onChange={handleInputChange}
                     onKeyDown={handleKeyDown}
@@ -394,6 +396,7 @@ export function SmartInput({
                     )}
 
                     <button
+                        data-testid="smart-send-button"
                         onClick={handleSubmit}
                         disabled={isLoading || !input.trim() || sessionCount === 0}
                         className={`

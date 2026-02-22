@@ -207,6 +207,7 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
 
     return (
         <div
+            data-testid={`chat-panel-${session.modelId}`}
             className={`
                 panel-shell flex flex-col rounded-2xl overflow-hidden
                 ${compact ? 'h-[400px]' : 'h-[600px]'}
@@ -230,7 +231,7 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
                     </div>
                     <div className="flex flex-col">
                         <span className="text-sm font-semibold text-[color:var(--ac-text)] truncate max-w-[180px]">
-                            {session.title}
+                            <span data-testid="chat-panel-title">{session.title}</span>
                         </span>
                         {isLoading ? (
                             <span className="text-[10px] text-[color:var(--ac-text-muted)]">
@@ -302,6 +303,7 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
             {/* Messages with iOS scroll behavior */}
             <div
                 ref={scrollRef}
+                data-testid="chat-messages"
                 className="flex-1 overflow-y-auto p-4 space-y-4 scrollable"
                 style={{ WebkitOverflowScrolling: 'touch' }}
             >
@@ -342,6 +344,7 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
                 {messages.map((m, index) => (
                     <div
                         key={m.id}
+                        data-testid={`chat-message-${m.role}`}
                         className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} group`}
                         style={{
                             animation: `slideInUp 300ms cubic-bezier(0.32, 0.72, 0, 1) forwards`,

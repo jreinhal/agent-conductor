@@ -15,7 +15,10 @@ import {
     BounceRound,
     DebateFindings,
     SharedKnowledgeEntry,
+    BounceConsensusMode,
 } from './bounce-types';
+import { detectConsensus } from './coordination/consensus';
+import type { ProtocolEntry, ProtocolRules, Stance } from './protocol/types';
 
 // ============================================================================
 // Similarity Calculation (Enhanced Jaccard)
@@ -145,8 +148,8 @@ function findCommonPoints(responses: BounceResponse[]): string[] {
     // Points mentioned by majority
     const threshold = Math.ceil(responses.length / 2);
     const commonPoints = [...pointCounts.entries()]
-        .filter(([_, count]) => count >= threshold)
-        .map(([point, _]) => point);
+        .filter(([, count]) => count >= threshold)
+        .map(([point]) => point);
 
     return commonPoints.slice(0, 5);
 }
@@ -176,6 +179,206 @@ function findDisputedPoints(responses: BounceResponse[]): string[] {
     return [...uniqueDisagreements].slice(0, 5);
 }
 
+export interface ConsensusAnalysisOptions {
+    consensusMode?: BounceConsensusMode;
+    consensusThreshold?: number;
+    resolutionQuorum?: number;
+    minimumStableRounds?: number;
+}
+
+const DEFAULT_OPTIONS: Required<ConsensusAnalysisOptions> = {
+    consensusMode: 'weighted',
+    consensusThreshold: 0.7,
+    resolutionQuorum: 0.75,
+    minimumStableRounds: 2,
+};
+
+function toProtocolStance(stance: ResponseStance): Stance {
+    switch (stance) {
+        case 'strongly_agree':
+        case 'agree':
+        case 'refine':
+        case 'synthesize':
+            return 'approve';
+        case 'disagree':
+        case 'strongly_disagree':
+            return 'reject';
+        case 'neutral':
+        default:
+            return 'neutral';
+    }
+}
+
+function makeProtocolRules(
+    responses: BounceResponse[],
+    options: Required<ConsensusAnalysisOptions>
+): ProtocolRules {
+    return {
+        agents: responses.map((r) => r.participantSessionId),
+        turnOrder: 'round-robin',
+        maxTurnsPerRound: 1,
+        turnTimeout: 300,
+        consensusThreshold: options.consensusThreshold,
+        consensusMode: options.consensusMode,
+        escalation: 'human',
+        maxRounds: 10,
+        outputFormat: 'structured',
+    };
+}
+
+function toProtocolEntries(responses: BounceResponse[]): ProtocolEntry[] {
+    return responses.map((response, index) => ({
+        metadata: {
+            entryId: `${response.participantSessionId}-${response.timestamp}-${index}`,
+            turn: index + 1,
+            round: 1,
+        },
+        timestamp: new Date(response.timestamp).toISOString(),
+        author: response.participantSessionId,
+        status: 'yield',
+        fields: {
+            stance: toProtocolStance(response.stance),
+            confidence: response.confidence,
+            summary: response.keyPoints[0] || response.content.slice(0, 120),
+            actionRequested: 'n/a',
+            evidence: 'n/a',
+        },
+        body: response.content,
+        hasYield: true,
+    }));
+}
+
+function normalizeVoteScore(score: number, mode: BounceConsensusMode): number {
+    if (mode === 'weighted') {
+        // Weighted mode can be [-1, 1]. Normalize to [0, 1].
+        return Math.max(0, Math.min(1, (score + 1) / 2));
+    }
+    return Math.max(0, Math.min(1, score));
+}
+
+function normalizeStructuredLabel(value: string): string {
+    return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function extractStructuredFieldValue(content: string, fieldNames: string[]): string | null {
+    const targetLabels = new Set(fieldNames.map(normalizeStructuredLabel));
+    const lines = content.split(/\r?\n/);
+
+    for (const rawLine of lines) {
+        const line = rawLine.replace(/\*\*/g, '').trim();
+        const separator = line.indexOf(':');
+        if (separator === -1) continue;
+
+        const label = normalizeStructuredLabel(line.slice(0, separator));
+        if (!targetLabels.has(label)) continue;
+
+        const value = line.slice(separator + 1).trim();
+        if (value.length > 0) {
+            return value.slice(0, 280);
+        }
+    }
+
+    return null;
+}
+
+function extractProposedResolution(response: BounceResponse): string {
+    const content = response.content || '';
+    const structuredValue = extractStructuredFieldValue(content, [
+        'proposed resolution',
+        'final recommendation',
+        'recommendation',
+        'conclusion',
+    ]);
+    if (structuredValue) {
+        return structuredValue;
+    }
+
+    if (response.keyPoints[0]) {
+        return response.keyPoints[0].trim().slice(0, 280);
+    }
+
+    const firstSentence = content
+        .replace(/\s+/g, ' ')
+        .split(/[.!?](?:\s|$)/)
+        .map((s) => s.trim())
+        .find((s) => s.length > 20);
+    return (firstSentence || content.slice(0, 180)).trim();
+}
+
+function extractProposalConvergence(responses: BounceResponse[]): {
+    leadingProposal: string;
+    supportRatio: number;
+    supporters: string[];
+    dissenters: string[];
+} {
+    if (responses.length === 0) {
+        return {
+            leadingProposal: '',
+            supportRatio: 0,
+            supporters: [],
+            dissenters: [],
+        };
+    }
+
+    const proposals = responses.map((response) => ({
+        sessionId: response.participantSessionId,
+        confidence: response.confidence,
+        proposal: extractProposedResolution(response),
+    }));
+
+    const clusters: Array<{
+        leader: string;
+        members: string[];
+        confidences: number[];
+    }> = [];
+
+    for (const proposal of proposals) {
+        let matchedCluster: typeof clusters[number] | null = null;
+        for (const cluster of clusters) {
+            const wordSimilarity = calculateSimilarity(cluster.leader, proposal.proposal);
+            const bigramSimilarity = calculateBigramSimilarity(cluster.leader, proposal.proposal);
+            const combined = wordSimilarity * 0.6 + bigramSimilarity * 0.4;
+            if (combined >= 0.62) {
+                matchedCluster = cluster;
+                break;
+            }
+        }
+
+        if (matchedCluster) {
+            matchedCluster.members.push(proposal.sessionId);
+            matchedCluster.confidences.push(proposal.confidence);
+        } else {
+            clusters.push({
+                leader: proposal.proposal,
+                members: [proposal.sessionId],
+                confidences: [proposal.confidence],
+            });
+        }
+    }
+
+    clusters.sort((a, b) => {
+        const bySupport = b.members.length - a.members.length;
+        if (bySupport !== 0) return bySupport;
+
+        const avgA = a.confidences.reduce((sum, x) => sum + x, 0) / a.confidences.length;
+        const avgB = b.confidences.reduce((sum, x) => sum + x, 0) / b.confidences.length;
+        return avgB - avgA;
+    });
+
+    const top = clusters[0];
+    const supporterSet = new Set(top.members);
+    const dissenters = responses
+        .map((r) => r.participantSessionId)
+        .filter((id) => !supporterSet.has(id));
+
+    return {
+        leadingProposal: top.leader,
+        supportRatio: top.members.length / responses.length,
+        supporters: top.members,
+        dissenters,
+    };
+}
+
 // ============================================================================
 // Main Consensus Analyzer
 // ============================================================================
@@ -183,10 +386,20 @@ function findDisputedPoints(responses: BounceResponse[]): string[] {
 /**
  * Analyze consensus across a set of responses
  */
-export function analyzeConsensus(responses: BounceResponse[]): ConsensusAnalysis {
+export function analyzeConsensus(
+    responses: BounceResponse[],
+    options: ConsensusAnalysisOptions = {},
+): ConsensusAnalysis {
+    const resolvedOptions: Required<ConsensusAnalysisOptions> = {
+        ...DEFAULT_OPTIONS,
+        ...options,
+    };
+
     if (responses.length === 0) {
         return {
             score: 0,
+            voteScore: 0,
+            consensusOutcome: 'not-reached',
             level: 'none',
             agreedPoints: [],
             disputedPoints: [],
@@ -194,19 +407,37 @@ export function analyzeConsensus(responses: BounceResponse[]): ConsensusAnalysis
             stanceBreakdown: {},
             trend: 'stable',
             recommendation: 'continue',
+            stableRounds: 0,
+            proposalConvergence: {
+                leadingProposal: '',
+                supportRatio: 0,
+                supporters: [],
+                dissenters: [],
+            },
         };
     }
 
     if (responses.length === 1) {
+        const only = responses[0];
+        const proposal = extractProposedResolution(only);
         return {
             score: 1.0,
+            voteScore: 1.0,
+            consensusOutcome: 'reached',
             level: 'unanimous',
-            agreedPoints: responses[0].keyPoints,
+            agreedPoints: only.keyPoints,
             disputedPoints: [],
             unclearPoints: [],
-            stanceBreakdown: { [responses[0].participantSessionId]: responses[0].stance },
+            stanceBreakdown: { [only.participantSessionId]: only.stance },
             trend: 'stable',
-            recommendation: 'continue',
+            recommendation: 'complete',
+            stableRounds: 1,
+            proposalConvergence: {
+                leadingProposal: proposal,
+                supportRatio: 1,
+                supporters: [only.participantSessionId],
+                dissenters: [],
+            },
         };
     }
 
@@ -234,12 +465,27 @@ export function analyzeConsensus(responses: BounceResponse[]): ConsensusAnalysis
         stanceBreakdown[r.participantSessionId] = r.stance;
     });
 
-    // Calculate confidence-weighted score
-    const avgConfidence = responses.reduce((sum, r) => sum + r.confidence, 0) / responses.length;
+    // Calculate deterministic vote consensus using protocol-grade logic.
+    const rules = makeProtocolRules(responses, resolvedOptions);
+    const protocolEntries = toProtocolEntries(responses);
+    const voteConsensus = detectConsensus(protocolEntries, rules);
 
-    // Combined consensus score
-    // 40% content similarity, 40% stance alignment, 20% confidence
-    const score = (avgSimilarity * 0.4) + (stanceAlignment * 0.4) + (avgConfidence * 0.2);
+    // Proposal convergence enforces that models are converging on the same final recommendation,
+    // not just similar tone/stance.
+    const proposalConvergence = extractProposalConvergence(responses);
+
+    // Calculate confidence-weighted semantic score
+    const semanticScore = (avgSimilarity * 0.7) + (stanceAlignment * 0.3);
+    const normalizedVoteScore = normalizeVoteScore(voteConsensus.score, resolvedOptions.consensusMode);
+
+    // Hybrid score:
+    // - deterministic vote score (45%)
+    // - proposal convergence quorum (35%)
+    // - semantic similarity/alignment (20%)
+    const score =
+        (normalizedVoteScore * 0.45) +
+        (proposalConvergence.supportRatio * 0.35) +
+        (semanticScore * 0.20);
 
     // Determine level
     let level: ConsensusAnalysis['level'];
@@ -264,10 +510,19 @@ export function analyzeConsensus(responses: BounceResponse[]): ConsensusAnalysis
         .slice(0, 3);
 
     // Determine recommendation
-    const recommendation = determineRecommendation(score, responses.length, disputedPoints.length);
+    const recommendation = determineRecommendation(
+        score,
+        responses.length,
+        disputedPoints.length,
+        voteConsensus.outcome,
+        proposalConvergence.supportRatio,
+        resolvedOptions.resolutionQuorum,
+    );
 
     return {
         score,
+        voteScore: voteConsensus.score,
+        consensusOutcome: voteConsensus.outcome,
         level,
         agreedPoints,
         disputedPoints,
@@ -275,6 +530,8 @@ export function analyzeConsensus(responses: BounceResponse[]): ConsensusAnalysis
         stanceBreakdown,
         trend: 'stable', // Will be updated by trend analyzer
         recommendation,
+        stableRounds: 0,
+        proposalConvergence,
     };
 }
 
@@ -302,11 +559,26 @@ export function analyzeConsensusTrend(rounds: BounceRound[]): 'improving' | 'sta
 function determineRecommendation(
     score: number,
     participantCount: number,
-    disputeCount: number
+    disputeCount: number,
+    outcome: ConsensusAnalysis['consensusOutcome'],
+    supportRatio: number,
+    quorum: number,
 ): ConsensusRecommendation {
+    if (outcome === 'deadlock') {
+        return 'deadlock';
+    }
+
+    if (outcome === 'reached' && supportRatio >= quorum && score >= 0.75) {
+        return 'complete';
+    }
+
+    if (outcome === 'reached' && supportRatio >= 0.6) {
+        return 'call_judge';
+    }
+
     // High consensus - ready for conclusion
     if (score >= 0.8) {
-        return 'complete';
+        return 'call_judge';
     }
 
     // Good consensus - judge can synthesize
@@ -324,7 +596,7 @@ function determineRecommendation(
         return 'continue';
     }
 
-    // Deadlock detection
+    // Deadlock detection (fallback when deterministic outcome is still not reached)
     if (score < 0.3 && participantCount >= 3) {
         return 'deadlock';
     }
@@ -342,23 +614,53 @@ function determineRecommendation(
  */
 export function updateConsensusWithTrend(
     current: ConsensusAnalysis,
-    rounds: BounceRound[]
+    rounds: BounceRound[],
+    options: ConsensusAnalysisOptions = {},
 ): ConsensusAnalysis {
+    const resolvedOptions: Required<ConsensusAnalysisOptions> = {
+        ...DEFAULT_OPTIONS,
+        ...options,
+    };
     const trend = analyzeConsensusTrend(rounds);
 
     // Adjust recommendation based on trend
     let recommendation = current.recommendation;
+    let stableRounds = 0;
+
+    const snapshots = [...rounds.map((round) => round.consensusAtEnd), current];
+    for (let i = snapshots.length - 1; i >= 0; i--) {
+        const snapshot = snapshots[i];
+        const reachedVote = snapshot.consensusOutcome === 'reached';
+        const reachedScore = snapshot.score >= resolvedOptions.consensusThreshold;
+        const reachedQuorum =
+            snapshot.proposalConvergence.supportRatio >= resolvedOptions.resolutionQuorum;
+
+        if (reachedVote && reachedScore && reachedQuorum) {
+            stableRounds++;
+            continue;
+        }
+        break;
+    }
 
     if (trend === 'degrading' && current.score < 0.5) {
         recommendation = 'deadlock';
-    } else if (trend === 'improving' && current.score > 0.6) {
+    } else if (trend === 'improving' && current.score > 0.6 && recommendation === 'continue') {
         recommendation = 'call_judge';
+    }
+
+    if (
+        current.consensusOutcome === 'reached' &&
+        current.proposalConvergence.supportRatio >= resolvedOptions.resolutionQuorum &&
+        stableRounds >= resolvedOptions.minimumStableRounds
+    ) {
+        recommendation = 'complete';
     }
 
     return {
         ...current,
         trend,
         recommendation,
+        stableRounds,
     };
 }
 

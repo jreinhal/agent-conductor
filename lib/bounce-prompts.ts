@@ -5,7 +5,7 @@
  * Designed to elicit structured, comparable responses.
  */
 
-import { BounceResponse, ResponseStance, ConsensusAnalysis, ParticipantConfig } from './bounce-types';
+import { BounceResponse, ResponseStance, ConsensusAnalysis } from './bounce-types';
 
 // ============================================================================
 // System Prompts
@@ -28,12 +28,21 @@ Your role is to:
 5. Be open to changing your view if presented with compelling arguments
 
 Response Guidelines:
-- Be concise but thorough (aim for 150-300 words)
-- Clearly state your stance at the beginning
-- Reference specific points from previous responses when applicable
-- Identify areas of common ground
-- Highlight genuine disagreements constructively
-- Suggest synthesis when possible
+- Use the exact headings in the response contract so your output can be machine-parsed.
+- Be concise but complete (roughly 120-260 words).
+- If you disagree, provide a concrete alternative proposal.
+
+Response Contract (required headings):
+STANCE: strongly_agree | agree | refine | synthesize | neutral | disagree | strongly_disagree
+CONFIDENCE: <0-100>%
+PROPOSED_RESOLUTION: <one sentence recommendation>
+AGREEMENTS:
+- <point>
+DISAGREEMENTS:
+- <point>
+RISK: <one concrete risk>
+MITIGATION: <one concrete mitigation>
+RATIONALE: <short justification>
 
 ${customSystemPrompt ? `\nAdditional Context:\n${customSystemPrompt}` : ''}`;
 
@@ -78,11 +87,8 @@ ${topic}
 
 You are the first to respond. Please provide your analysis and perspective on this topic.
 
-Structure your response as:
-1. **Your Stance**: Clearly state your position
-2. **Key Points**: Your main arguments (2-4 points)
-3. **Considerations**: Important factors to weigh
-4. **Conclusion**: Your recommendation or conclusion`;
+For round 1, propose an initial solution that other models can evaluate.
+Make your proposal precise enough that another model can either adopt it or challenge it.`;
 }
 
 /**
@@ -147,12 +153,11 @@ ${topic}
 
 Review the responses above and provide your perspective.
 
-Structure your response as:
-1. **Your Stance**: State whether you agree, disagree, or want to refine the discussion
-2. **Points of Agreement**: What do you agree with from previous responses?
-3. **Points of Disagreement**: Where do you differ? Why?
-4. **Your Analysis**: Your unique contribution or synthesis
-5. **Conclusion**: Your current position
+For this round:
+1. Evaluate the strongest proposal so far.
+2. Either adopt it (optionally with one refinement) or replace it with a better proposal.
+3. Include exactly one risk and one mitigation.
+4. Keep arguments evidence-based and directly comparable to previous turns.
 
 Be direct about agreements and disagreements. Reference specific points from other participants.`;
 
@@ -291,6 +296,18 @@ export function parseStanceFromResponse(content: string): ResponseStance {
     const lower = content.toLowerCase();
     const first500 = lower.substring(0, 500); // Focus on beginning where stance is stated
 
+    const structuredStance = extractStructuredLineValue(content, 'stance');
+    if (structuredStance) {
+        const raw = structuredStance.trim().toLowerCase().replace(/\s+/g, '_');
+        if (raw.includes('strongly_agree')) return 'strongly_agree';
+        if (raw.includes('strongly_disagree')) return 'strongly_disagree';
+        if (raw.includes('agree')) return 'agree';
+        if (raw.includes('disagree')) return 'disagree';
+        if (raw.includes('refine')) return 'refine';
+        if (raw.includes('synthesize')) return 'synthesize';
+        if (raw.includes('neutral')) return 'neutral';
+    }
+
     // Check for explicit stance markers
     if (first500.includes('strongly agree') || first500.includes('completely agree') || first500.includes('fully support')) {
         return 'strongly_agree';
@@ -322,6 +339,27 @@ export function parseStanceFromResponse(content: string): ResponseStance {
     if (negativeCount > positiveCount + 2) return 'disagree';
 
     return 'neutral';
+}
+
+function extractStructuredLineValue(content: string, fieldName: string): string | null {
+    const normalizedTarget = fieldName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const lines = content.split(/\r?\n/);
+
+    for (const rawLine of lines) {
+        const line = rawLine.replace(/\*\*/g, '').trim();
+        const separator = line.indexOf(':');
+        if (separator === -1) continue;
+
+        const label = line.slice(0, separator).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (label !== normalizedTarget) continue;
+
+        const value = line.slice(separator + 1).trim();
+        if (value.length > 0) {
+            return value;
+        }
+    }
+
+    return null;
 }
 
 /**
@@ -367,8 +405,6 @@ export function extractAgreementsAndDisagreements(content: string): {
 } {
     const agreements: string[] = [];
     const disagreements: string[] = [];
-
-    const lower = content.toLowerCase();
 
     // Agreement patterns
     const agreementPatterns = [
