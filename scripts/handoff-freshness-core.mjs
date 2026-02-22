@@ -18,6 +18,42 @@ export function normalizeItemId(entry) {
   return itemId || 'n/a';
 }
 
+function isCodeFence(line) {
+  return line.trim().startsWith('```');
+}
+
+function buildEntryFromHeader(line, lineIndex) {
+  const header = line.match(ENTRY_HEADER_RE);
+  if (!header?.groups) return null;
+
+  const timestamp = header.groups.timestamp.trim();
+  const hasPlaceholder = timestamp.includes('<') || timestamp.toLowerCase().includes('timestamp');
+  if (hasPlaceholder || parseTimestampMs(timestamp) === null) {
+    return null;
+  }
+
+  return {
+    timestamp,
+    author: header.groups.author.trim(),
+    status: header.groups.status.trim(),
+    startLine: lineIndex + 1,
+    fields: {},
+  };
+}
+
+function addFieldToEntry(entry, line) {
+  if (!entry) return entry;
+
+  const field = line.match(FIELD_RE);
+  if (!field) return entry;
+
+  const key = field[1];
+  if (!(key in entry.fields)) {
+    entry.fields[key] = field[2];
+  }
+  return entry;
+}
+
 export function parseEntries(markdown) {
   const lines = markdown.split(/\r?\n/);
   const dividerIndex = lines.indexOf('---');
@@ -26,48 +62,31 @@ export function parseEntries(markdown) {
   const entries = [];
   let current = null;
   let inCodeBlock = false;
+  const pushCurrent = () => {
+    if (!current) return;
+    entries.push(current);
+    current = null;
+  };
 
   for (let index = startIndex; index < lines.length; index += 1) {
     const line = lines[index];
-    if (line.trim().startsWith('```')) {
+    if (isCodeFence(line)) {
       inCodeBlock = !inCodeBlock;
       continue;
     }
     if (inCodeBlock) continue;
 
-    const header = line.match(ENTRY_HEADER_RE);
-    if (header?.groups) {
-      const timestamp = header.groups.timestamp.trim();
-      const hasPlaceholder = timestamp.includes('<') || timestamp.toLowerCase().includes('timestamp');
-      if (hasPlaceholder || parseTimestampMs(timestamp) === null) {
-        continue;
-      }
-      if (current) {
-        entries.push(current);
-      }
-      current = {
-        timestamp,
-        author: header.groups.author.trim(),
-        status: header.groups.status.trim(),
-        startLine: index + 1,
-        fields: {},
-      };
+    const nextEntry = buildEntryFromHeader(line, index);
+    if (nextEntry) {
+      pushCurrent();
+      current = nextEntry;
       continue;
     }
 
-    if (!current) continue;
-    const field = line.match(FIELD_RE);
-    if (field) {
-      const key = field[1];
-      if (!(key in current.fields)) {
-        current.fields[key] = field[2];
-      }
-    }
+    current = addFieldToEntry(current, line);
   }
 
-  if (current) {
-    entries.push(current);
-  }
+  pushCurrent();
 
   return entries;
 }

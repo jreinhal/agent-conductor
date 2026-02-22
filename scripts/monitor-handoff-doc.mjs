@@ -41,6 +41,14 @@ function formatNow() {
   return new Date().toISOString();
 }
 
+function formatIndentedList(header, items) {
+  return [header, ...items.map((item) => `  - ${item}`)].join('\n');
+}
+
+function formatPendingEntry(entry) {
+  return `${entry.author}/${entry.status}/${entry.item_id}@L${entry.line}`;
+}
+
 function summarize(entries) {
   const counts = { open: 0, in_progress: 0, closed: 0, unknown: 0 };
   for (const entry of entries) {
@@ -104,6 +112,10 @@ async function runAudit({ filePath, guidePath, outputPath, pendingWindow }) {
   if (guideStats.mtimeMs + GUIDE_SYNC_MAX_LAG_MS < sourceStats.mtimeMs) {
     syncNotes.push('Guide appears older than handoff beyond sync lag threshold.');
   }
+  const guideSyncFindings =
+    syncNotes.length > 0
+      ? formatIndentedList('- guide-sync-findings:', syncNotes)
+      : '- guide-sync-findings:\n  - in-sync';
 
   const latest = summary.latest;
   const body = [
@@ -116,9 +128,7 @@ async function runAudit({ filePath, guidePath, outputPath, pendingWindow }) {
       : '- latest: none',
     `- top-signature: ${state.top_signature}`,
     `- pending-codex: ${state.pending_codex_count}`,
-    syncNotes.length > 0
-      ? `- guide-sync-findings:\n${syncNotes.map((note) => `  - ${note}`).join('\n')}`
-      : '- guide-sync-findings:\n  - in-sync',
+    guideSyncFindings,
     '',
   ].join('\n');
 
@@ -180,7 +190,11 @@ async function monitor({
   console.log(`[monitor] loop: sleep ${intervalSeconds}s -> read -> compare top entry -> act -> repeat (${durationLabel})`);
 
   const startedAt = Date.now();
-  while (durationMs === null || Date.now() - startedAt < durationMs) {
+  while (true) {
+    if (durationMs !== null && Date.now() - startedAt >= durationMs) {
+      break;
+    }
+
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
 
     let markdown;
@@ -218,7 +232,8 @@ async function monitor({
       `- pending-codex: ${state.pending_codex_count}`,
     ];
     if (state.pending_codex.length > 0) {
-      lines.push(`- pending-sample: ${state.pending_codex.map((entry) => `${entry.author}/${entry.status}/${entry.item_id}@L${entry.line}`).join(', ')}`);
+      const pendingSample = state.pending_codex.map((entry) => formatPendingEntry(entry)).join(', ');
+      lines.push(`- pending-sample: ${pendingSample}`);
     }
     lines.push('');
 
