@@ -1,9 +1,5 @@
 export const DEFAULT_PENDING_WINDOW = 100;
 
-const ENTRY_HEADER_RE =
-  /^\[(?<timestamp>[^\]]+)\]\s+\[author:\s*(?<author>[^\]]+)\]\s+\[status:\s*(?<status>[^\]]+)\]$/;
-const FIELD_RE = /^([a-z_]+):\s*(.*)$/;
-
 export function parseTimestampMs(value) {
   const parsed = Date.parse(value);
   return Number.isNaN(parsed) ? null : parsed;
@@ -22,11 +18,66 @@ function isCodeFence(line) {
   return line.trim().startsWith('```');
 }
 
-function buildEntryFromHeader(line, lineIndex) {
-  const header = line.match(ENTRY_HEADER_RE);
-  if (!header?.groups) return null;
+function extractBracketValue(source, label) {
+  if (!source.startsWith(`[${label}:`)) return null;
+  const endBracket = source.indexOf(']');
+  if (endBracket < 0) return null;
+  const value = source.slice(label.length + 2, endBracket).trim();
+  if (!value) return null;
+  return {
+    value,
+    rest: source.slice(endBracket + 1).trimStart(),
+  };
+}
 
-  const timestamp = header.groups.timestamp.trim();
+function parseHeaderParts(line) {
+  if (!line.startsWith('[')) return null;
+
+  const timestampEnd = line.indexOf(']');
+  if (timestampEnd <= 1) return null;
+  const timestamp = line.slice(1, timestampEnd).trim();
+  if (!timestamp) return null;
+
+  let rest = line.slice(timestampEnd + 1).trimStart();
+  const authorPart = extractBracketValue(rest, 'author');
+  if (!authorPart) return null;
+
+  rest = authorPart.rest;
+  const statusPart = extractBracketValue(rest, 'status');
+  if (!statusPart || statusPart.rest.length > 0) return null;
+
+  return {
+    timestamp,
+    author: authorPart.value,
+    status: statusPart.value,
+  };
+}
+
+function isValidFieldKey(key) {
+  if (!key) return false;
+  for (const char of key) {
+    const isLowerAlpha = char >= 'a' && char <= 'z';
+    if (!isLowerAlpha && char !== '_') return false;
+  }
+  return true;
+}
+
+function parseFieldLine(line) {
+  const colon = line.indexOf(':');
+  if (colon <= 0) return null;
+  const key = line.slice(0, colon).trim();
+  if (!isValidFieldKey(key)) return null;
+  return {
+    key,
+    value: line.slice(colon + 1).trimStart(),
+  };
+}
+
+function buildEntryFromHeader(line, lineIndex) {
+  const header = parseHeaderParts(line);
+  if (!header) return null;
+
+  const timestamp = header.timestamp;
   const hasPlaceholder = timestamp.includes('<') || timestamp.toLowerCase().includes('timestamp');
   if (hasPlaceholder || parseTimestampMs(timestamp) === null) {
     return null;
@@ -34,8 +85,8 @@ function buildEntryFromHeader(line, lineIndex) {
 
   return {
     timestamp,
-    author: header.groups.author.trim(),
-    status: header.groups.status.trim(),
+    author: header.author,
+    status: header.status,
     startLine: lineIndex + 1,
     fields: {},
   };
@@ -44,12 +95,12 @@ function buildEntryFromHeader(line, lineIndex) {
 function addFieldToEntry(entry, line) {
   if (!entry) return entry;
 
-  const field = line.match(FIELD_RE);
+  const field = parseFieldLine(line);
   if (!field) return entry;
 
-  const key = field[1];
+  const key = field.key;
   if (!(key in entry.fields)) {
-    entry.fields[key] = field[2];
+    entry.fields[key] = field.value;
   }
   return entry;
 }
