@@ -10,6 +10,7 @@
 // ============================================================================
 
 export type BounceMode = 'sequential' | 'parallel';
+export type BounceConsensusMode = 'majority' | 'weighted' | 'unanimous';
 
 export interface BounceConfig {
     /** Models participating in the debate */
@@ -23,6 +24,15 @@ export interface BounceConfig {
 
     /** Consensus threshold (0.0-1.0) to auto-stop */
     consensusThreshold: number;
+
+    /** Deterministic vote mode used for consensus detection */
+    consensusMode: BounceConsensusMode;
+
+    /** Minimum consecutive rounds meeting consensus criteria before auto-stop */
+    minimumStableRounds: number;
+
+    /** Minimum support ratio for the leading resolution proposal (0.0-1.0) */
+    resolutionQuorum: number;
 
     /** Milliseconds between responses (for user reading) */
     pauseBetweenResponses: number;
@@ -44,6 +54,12 @@ export interface BounceConfig {
 
     /** Approximate token budget for debate context passed to each model */
     maxContextTokens: number;
+
+    /** Retry budget for each participant turn after transient provider failures */
+    maxResponseRetries: number;
+
+    /** Base delay before retrying a failed participant turn (milliseconds) */
+    retryBackoffMs: number;
 }
 
 export interface ParticipantConfig {
@@ -58,6 +74,9 @@ export const DEFAULT_BOUNCE_CONFIG: BounceConfig = {
     mode: 'sequential',
     maxRounds: 3,
     consensusThreshold: 0.7,
+    consensusMode: 'weighted',
+    minimumStableRounds: 2,
+    resolutionQuorum: 0.75,
     pauseBetweenResponses: 500,
     allowUserInterjection: true,
     judgeModelId: 'claude-opus-4.6',
@@ -65,6 +84,8 @@ export const DEFAULT_BOUNCE_CONFIG: BounceConfig = {
     enablePruning: false,
     pruningThreshold: 0.85,
     maxContextTokens: 8000,
+    maxResponseRetries: 1,
+    retryBackoffMs: 800,
 };
 
 // ============================================================================
@@ -192,6 +213,12 @@ export interface ConsensusAnalysis {
     /** Overall consensus score (0.0 = total disagreement, 1.0 = full consensus) */
     score: number;
 
+    /** Outcome from deterministic vote logic */
+    consensusOutcome: 'reached' | 'not-reached' | 'deadlock';
+
+    /** Raw vote score from deterministic consensus mode */
+    voteScore: number;
+
     /** Consensus level for UI display */
     level: 'none' | 'low' | 'partial' | 'strong' | 'unanimous';
 
@@ -212,6 +239,17 @@ export interface ConsensusAnalysis {
 
     /** Recommendation for next action */
     recommendation: ConsensusRecommendation;
+
+    /** Consecutive rounds that meet configured stop criteria */
+    stableRounds: number;
+
+    /** Leading proposal convergence metadata */
+    proposalConvergence: {
+        leadingProposal: string;
+        supportRatio: number;
+        supporters: string[];
+        dissenters: string[];
+    };
 }
 
 export type ConsensusRecommendation =

@@ -79,8 +79,8 @@ export function BouncePanel({ maxHeight = '600px' }: BouncePanelProps) {
             {/* Content */}
             <div className="overflow-y-auto" style={{ maxHeight: `calc(${maxHeight} - 80px)` }}>
                 {/* Rounds */}
-                {rounds.map((round) => (
-                    <RoundDisplay key={round.roundNumber} round={round} />
+                {rounds.map((round, index) => (
+                    <RoundDisplay key={`${round.roundNumber}-${round.timestamp}-${index}`} round={round} />
                 ))}
 
                 {/* Final Answer */}

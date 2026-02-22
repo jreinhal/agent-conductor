@@ -10,7 +10,6 @@
 import {
     BounceState,
     BounceConfig,
-    BounceStatus,
     BounceRound,
     BounceResponse,
     BounceEvent,
@@ -300,9 +299,18 @@ export class BounceOrchestrator {
             }
 
             // Analyze consensus at end of round
-            const allResponses = this.state.rounds.flatMap(r => r.responses).concat(roundResponses);
-            const consensus = analyzeConsensus(roundResponses);
-            const updatedConsensus = updateConsensusWithTrend(consensus, this.state.rounds);
+            const consensus = analyzeConsensus(roundResponses, {
+                consensusMode: config.consensusMode,
+                consensusThreshold: config.consensusThreshold,
+                resolutionQuorum: config.resolutionQuorum,
+                minimumStableRounds: config.minimumStableRounds,
+            });
+            const updatedConsensus = updateConsensusWithTrend(consensus, this.state.rounds, {
+                consensusMode: config.consensusMode,
+                consensusThreshold: config.consensusThreshold,
+                resolutionQuorum: config.resolutionQuorum,
+                minimumStableRounds: config.minimumStableRounds,
+            });
 
             // Record the round
             const round: BounceRound = {
@@ -396,12 +404,11 @@ export class BounceOrchestrator {
                 participant.systemPrompt
             );
 
-            // Get response from model
-            const content = await this.sendMessage(
+            // Get response from model with bounded retries for transient failures.
+            const content = await this.sendMessageWithRetry(
                 participant.modelId,
                 systemPrompt,
-                prompt,
-                this.abortController?.signal
+                prompt
             );
 
             const durationMs = Date.now() - startTime;
@@ -435,21 +442,66 @@ export class BounceOrchestrator {
         }
     }
 
+    private async sendMessageWithRetry(
+        modelId: string,
+        systemPrompt: string,
+        prompt: string
+    ): Promise<string> {
+        const maxAttempts = Math.max(1, this.state.config.maxResponseRetries + 1);
+        let lastError: unknown;
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                return await this.sendMessage(
+                    modelId,
+                    systemPrompt,
+                    prompt,
+                    this.abortController?.signal
+                );
+            } catch (error) {
+                if ((error as Error).name === 'AbortError') {
+                    throw error;
+                }
+                lastError = error;
+                if (attempt >= maxAttempts) {
+                    break;
+                }
+
+                const backoffMs = this.state.config.retryBackoffMs * Math.pow(2, attempt - 1);
+                console.warn(
+                    `[BounceOrchestrator] Retry ${attempt}/${maxAttempts - 1} for ${modelId} in ${backoffMs}ms`,
+                    error
+                );
+                await this.sleep(backoffMs);
+            }
+        }
+
+        throw lastError instanceof Error ? lastError : new Error('Failed to obtain model response');
+    }
+
     private shouldStopDebate(consensus: ConsensusAnalysis): boolean {
         const { config } = this.state;
+        const reachedVote = consensus.consensusOutcome === 'reached';
+        const reachedScore = consensus.score >= config.consensusThreshold;
+        const reachedQuorum = consensus.proposalConvergence.supportRatio >= config.resolutionQuorum;
+        const reachedStability = consensus.stableRounds >= config.minimumStableRounds;
 
-        // Check consensus threshold
-        if (config.autoStopOnConsensus && consensus.score >= config.consensusThreshold) {
+        // Check deterministic auto-stop gate: vote + quorum + stability.
+        if (config.autoStopOnConsensus && reachedVote && reachedScore && reachedQuorum && reachedStability) {
             this.state.status = 'consensus';
             return true;
         }
 
-        // Check recommendation
-        if (consensus.recommendation === 'complete' || consensus.recommendation === 'call_judge') {
+        // Strong recommendation to synthesize.
+        if (consensus.recommendation === 'complete') {
             return true;
         }
 
-        // Check for deadlock
+        if (consensus.recommendation === 'call_judge' && reachedVote && reachedQuorum) {
+            return true;
+        }
+
+        // Check for deadlock.
         if (consensus.recommendation === 'deadlock') {
             return true;
         }
@@ -474,22 +526,26 @@ export class BounceOrchestrator {
             return;
         }
 
-        const consensus = this.state.consensus || analyzeConsensus(allResponses);
+        const resolvedConsensus = this.state.consensus || analyzeConsensus(allResponses, {
+            consensusMode: this.state.config.consensusMode,
+            consensusThreshold: this.state.config.consensusThreshold,
+            resolutionQuorum: this.state.config.resolutionQuorum,
+            minimumStableRounds: this.state.config.minimumStableRounds,
+        });
 
         const prompt = buildJudgeSynthesisPrompt(
             this.state.originalTopic,
             allResponses,
-            consensus
+            resolvedConsensus
         );
 
         const systemPrompt = getJudgeSystemPrompt();
 
         try {
-            const finalAnswer = await this.sendMessage(
+            const finalAnswer = await this.sendMessageWithRetry(
                 this.state.config.judgeModelId,
                 systemPrompt,
-                prompt,
-                this.abortController?.signal
+                prompt
             );
 
             this.state.finalAnswer = finalAnswer;
@@ -499,7 +555,7 @@ export class BounceOrchestrator {
             this.emit({
                 type: 'BOUNCE_COMPLETE',
                 finalAnswer,
-                consensus,
+                consensus: resolvedConsensus,
             });
         } catch (error) {
             if ((error as Error).name === 'AbortError') return;

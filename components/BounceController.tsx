@@ -89,8 +89,10 @@ export function BounceController({
                 break;
 
             case 'ROUND_COMPLETE':
+                // Use orchestrator state as source of truth to avoid stale-closure
+                // duplication when events arrive during rapid re-renders.
                 updateBounceState({
-                    rounds: [...bounceState.rounds, event.round],
+                    rounds: orchestratorRef.current?.getState().rounds || [...bounceState.rounds, event.round],
                 });
                 break;
 
@@ -407,6 +409,62 @@ export function BounceController({
                                 />
                             </div>
 
+                            {/* Consensus Mode */}
+                            <div>
+                                <label className="block text-xs font-medium text-[color:var(--ac-text-muted)] mb-1">
+                                    Vote Mode
+                                </label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {(['majority', 'weighted', 'unanimous'] as const).map((mode) => (
+                                        <button
+                                            key={mode}
+                                            onClick={() => setBounceConfig({ consensusMode: mode })}
+                                            className={`px-2 py-2 rounded-lg text-xs capitalize ${
+                                                bounceConfig.consensusMode === mode
+                                                    ? 'text-[color:var(--ac-text)]'
+                                                    : 'ac-soft-surface text-[color:var(--ac-text-dim)]'
+                                            }`}
+                                            style={bounceConfig.consensusMode === mode ? {
+                                                background: 'color-mix(in srgb, var(--ac-accent) 14%, var(--ac-surface))',
+                                                border: '1px solid color-mix(in srgb, var(--ac-accent) 55%, var(--ac-border))',
+                                            } : undefined}
+                                        >
+                                            {mode}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Proposal Quorum */}
+                            <div>
+                                <label className="block text-xs font-medium text-[color:var(--ac-text-muted)] mb-1">
+                                    Proposal Quorum: {Math.round(bounceConfig.resolutionQuorum * 100)}%
+                                </label>
+                                <input
+                                    type="range"
+                                    min={50}
+                                    max={100}
+                                    value={bounceConfig.resolutionQuorum * 100}
+                                    onChange={(e) => setBounceConfig({ resolutionQuorum: parseInt(e.target.value, 10) / 100 })}
+                                    className="w-full"
+                                />
+                            </div>
+
+                            {/* Stable Rounds */}
+                            <div>
+                                <label className="block text-xs font-medium text-[color:var(--ac-text-muted)] mb-1">
+                                    Stable Rounds: {bounceConfig.minimumStableRounds}
+                                </label>
+                                <input
+                                    type="range"
+                                    min={1}
+                                    max={4}
+                                    value={bounceConfig.minimumStableRounds}
+                                    onChange={(e) => setBounceConfig({ minimumStableRounds: parseInt(e.target.value, 10) })}
+                                    className="w-full"
+                                />
+                            </div>
+
                             {/* User Interjection */}
                             <div className="flex items-center justify-between">
                                 <span className="text-xs text-[color:var(--ac-text-muted)]">
@@ -472,6 +530,21 @@ export function BounceController({
                                     Older responses are trimmed when context exceeds budget
                                 </p>
                             </div>
+
+                            {/* Retry Budget */}
+                            <div>
+                                <label className="block text-xs font-medium text-[color:var(--ac-text-muted)] mb-1">
+                                    Retry Budget Per Model: {bounceConfig.maxResponseRetries}
+                                </label>
+                                <input
+                                    type="range"
+                                    min={0}
+                                    max={3}
+                                    value={bounceConfig.maxResponseRetries}
+                                    onChange={(e) => setBounceConfig({ maxResponseRetries: parseInt(e.target.value, 10) })}
+                                    className="w-full"
+                                />
+                            </div>
                         </div>
                     )}
                 </div>
@@ -533,6 +606,11 @@ export function BounceController({
                             }`}
                             style={{ width: `${bounceState.consensus.score * 100}%` }}
                         />
+                    </div>
+                    <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-[color:var(--ac-text-muted)]">
+                        <span>Vote: {bounceState.consensus.consensusOutcome}</span>
+                        <span>Quorum: {Math.round(bounceState.consensus.proposalConvergence.supportRatio * 100)}%</span>
+                        <span>Stable: {bounceState.consensus.stableRounds}/{bounceConfig.minimumStableRounds}</span>
                     </div>
                 </div>
             )}
