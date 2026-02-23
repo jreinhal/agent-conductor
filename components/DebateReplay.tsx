@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Play, Pause, SkipForward, SkipBack, X, Clock } from 'lucide-react';
 import type { SerializedBounceSession, BounceRound, BounceResponse } from '@/lib/bounce-types';
 
@@ -23,14 +23,17 @@ export function DebateReplay({ session, onClose }: DebateReplayProps) {
     const totalResponses = activeRound?.responses.length ?? 0;
 
     // All responses up to and including current position
-    const visibleResponses: { round: number; response: BounceResponse }[] = [];
-    for (let r = 0; r <= currentRound && r < totalRounds; r++) {
-        const round = session.rounds[r];
-        const maxResp = r < currentRound ? round.responses.length : currentResponse + 1;
-        for (let i = 0; i < Math.min(maxResp, round.responses.length); i++) {
-            visibleResponses.push({ round: r, response: round.responses[i] });
+    const visibleResponses = useMemo(() => {
+        const res: { round: number; response: BounceResponse }[] = [];
+        for (let r = 0; r <= currentRound && r < totalRounds; r++) {
+            const round = session.rounds[r];
+            const maxResp = r < currentRound ? round.responses.length : currentResponse + 1;
+            for (let i = 0; i < Math.min(maxResp, round.responses.length); i++) {
+                res.push({ round: r, response: round.responses[i] });
+            }
         }
-    }
+        return res;
+    }, [session.rounds, currentRound, currentResponse, totalRounds]);
 
     const isAtEnd = currentRound >= totalRounds - 1 && currentResponse >= totalResponses - 1;
 
