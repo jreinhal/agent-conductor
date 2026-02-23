@@ -40,6 +40,8 @@ import {
     identifyPrunableParticipants,
 } from './consensus-analyzer';
 
+import { MODELS } from './models';
+
 // ============================================================================
 // Orchestrator Class
 // ============================================================================
@@ -566,6 +568,54 @@ export class BounceOrchestrator {
         return false;
     }
 
+    /**
+     * Select the best judge model. Prefers a model NOT participating in the debate.
+     * If the configured judge is a participant, picks the non-participant model with
+     * highest average confidence, or falls back to the configured judge.
+     */
+    private selectJudgeModel(): string {
+        const configuredJudge = this.state.config.judgeModelId;
+        const participantModelIds = new Set(
+            this.state.config.participants.map(p => p.modelId)
+        );
+
+        // If configured judge isn't a participant, use it directly
+        if (!participantModelIds.has(configuredJudge)) {
+            return configuredJudge;
+        }
+
+        // Try to find a non-participant model from the available model pool
+        const nonParticipantModel = MODELS.find(
+            m => m.id !== 'auto-router' && !participantModelIds.has(m.id)
+        );
+        if (nonParticipantModel) {
+            return nonParticipantModel.id;
+        }
+
+        // All available models are participants — fall back to highest-confidence participant
+        const allResponses = this.state.rounds.flatMap(r => r.responses);
+        const modelScores = new Map<string, { totalConf: number; count: number }>();
+
+        for (const r of allResponses) {
+            const existing = modelScores.get(r.modelId) || { totalConf: 0, count: 0 };
+            existing.totalConf += r.confidence;
+            existing.count += 1;
+            modelScores.set(r.modelId, existing);
+        }
+
+        let bestModel = configuredJudge;
+        let bestAvg = -1;
+        for (const [modelId, { totalConf, count }] of modelScores) {
+            const avg = count > 0 ? totalConf / count : 0;
+            if (avg > bestAvg) {
+                bestAvg = avg;
+                bestModel = modelId;
+            }
+        }
+
+        return bestModel;
+    }
+
     private async runJudgeSynthesis(): Promise<void> {
         this.state.status = 'judging';
         this.emit({ type: 'JUDGING_STARTED' });
@@ -591,10 +641,11 @@ export class BounceOrchestrator {
         );
 
         const systemPrompt = getJudgeSystemPrompt();
+        const judgeModelId = this.selectJudgeModel();
 
         try {
             const finalAnswer = await this.sendMessageWithRetry(
-                this.state.config.judgeModelId,
+                judgeModelId,
                 systemPrompt,
                 prompt
             );

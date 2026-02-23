@@ -92,6 +92,43 @@ Make your proposal precise enough that another model can either adopt it or chal
 }
 
 /**
+ * Build a cross-pollination summary showing each participant's current stance
+ * and proposed resolution so models can directly reference each other's positions.
+ */
+function buildCrossPollination(responses: BounceResponse[]): string {
+    if (responses.length === 0) return '';
+
+    // Deduplicate by participant — keep only the most recent response per model
+    const latestByParticipant = new Map<string, BounceResponse>();
+    for (const r of responses) {
+        latestByParticipant.set(r.participantSessionId, r);
+    }
+
+    const rows = [...latestByParticipant.values()].map(r => {
+        const stanceLabel = formatStance(r.stance);
+        const conf = Math.round(r.confidence * 100);
+        // Extract a one-liner proposal from content
+        const firstLine = r.content
+            .replace(/\*\*/g, '')
+            .split(/\n/)
+            .map(l => l.trim())
+            .find(l => l.length > 20 && !l.startsWith('#'));
+        const proposal = firstLine?.slice(0, 120) || r.keyPoints[0] || '(no proposal extracted)';
+        return `| ${r.modelTitle} | ${stanceLabel} | ${conf}% | ${proposal} |`;
+    });
+
+    return `
+## Proposal Board (cross-pollination)
+
+| Participant | Stance | Confidence | Core Proposal |
+|-------------|--------|------------|---------------|
+${rows.join('\n')}
+
+---
+`;
+}
+
+/**
  * Estimate token count from text (words * 1.3 is a reasonable approximation)
  */
 function estimateTokens(text: string): number {
@@ -137,12 +174,15 @@ export function buildDebatePromptWithHistory(
     roundNumber: number,
     maxContextTokens?: number
 ): string {
+    // Build cross-pollination summary: compact table of each participant's stance + proposal
+    const crossPollination = buildCrossPollination(previousResponses);
+
     const promptFrame = `## Debate Topic
 
 ${topic}
 
 ---
-
+${crossPollination}
 ## Previous Responses (Round ${roundNumber})
 
 {RESPONSES}
@@ -151,13 +191,14 @@ ${topic}
 
 ## Your Turn
 
-Review the responses above and provide your perspective.
+Review the responses above and the Proposal Board.
 
 For this round:
-1. Evaluate the strongest proposal so far.
+1. Evaluate the strongest proposal so far — reference it by participant name.
 2. Either adopt it (optionally with one refinement) or replace it with a better proposal.
-3. Include exactly one risk and one mitigation.
-4. Keep arguments evidence-based and directly comparable to previous turns.
+3. Address at least one specific point from another participant by name.
+4. Include exactly one risk and one mitigation.
+5. Keep arguments evidence-based and directly comparable to previous turns.
 
 Be direct about agreements and disagreements. Reference specific points from other participants.`;
 
