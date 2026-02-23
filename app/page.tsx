@@ -624,6 +624,10 @@ export default function Page() {
                     <div
                         className="fixed inset-0 -z-10 bg-black/40 backdrop-blur-sm transition-opacity"
                         onClick={handleBounceCancel}
+                        onKeyDown={(e) => { if (e.key === 'Escape') handleBounceCancel(); }}
+                        role="button"
+                        tabIndex={-1}
+                        aria-label="Close debate panel"
                     />
                 )}
 
