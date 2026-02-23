@@ -12,19 +12,28 @@ import { SmartInput } from '@/components/SmartInput';
 import { UsageMeter, useTokenTracking } from '@/components/UsageMeter';
 import { ResizablePanels } from '@/components/ResizablePanels';
 import { TerminalDock, useTerminalDock } from '@/components/TerminalDock';
-import { SettingsModal } from '@/components/SettingsModal';
+import {
+    SettingsModal,
+    BILLING_MODE_STORAGE_KEY,
+    BILLING_PLAN_STORAGE_KEY,
+    type PlanId,
+    type SettingsTab,
+} from '@/components/SettingsModal';
 import { BounceController } from '@/components/BounceController';
 import { BouncePanel } from '@/components/BouncePanel';
 import { ProtocolBoard } from '@/components/ProtocolBoard';
 import { SessionInsightsPanel } from '@/components/SessionInsightsPanel';
 import { DecisionTracePanel } from '@/components/DecisionTracePanel';
 import { RunTimelineStrip } from '@/components/RunTimelineStrip';
+import { FileExplorerDock } from '@/components/FileExplorerDock';
+import { ModelDialoguePanel } from '@/components/ModelDialoguePanel';
 
 // Data & State
 import { MODELS } from '@/lib/models';
 import { PERSONAS } from '@/lib/personas';
 import { WORKFLOWS } from '@/lib/workflows';
-import { useAgentStore } from '@/lib/store';
+import { useAgentStore, useAutoBounce } from '@/lib/store';
+import { buildFileContextPack, LocalAttachmentFile } from '@/lib/file-context';
 
 type ViewMode = 'grid' | 'freeform' | 'resizable';
 
@@ -32,13 +41,19 @@ export default function Page() {
     // UI State
     const [isCommandOpen, setCommandOpen] = useState(false);
     const [isSettingsOpen, setSettingsOpen] = useState(false);
+    const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('providers');
     const [isProtocolOpen, setProtocolOpen] = useState(false);
     const [isInsightsOpen, setInsightsOpen] = useState(false);
     const [isTraceOpen, setTraceOpen] = useState(false);
+    const [isDialogueOpen, setDialogueOpen] = useState(false);
     const [viewMode, setViewMode] = useState<ViewMode>('grid');
     const [isBounceOpen, setBounceOpen] = useState(false);
     const [bounceTopic, setBounceTopic] = useState<string | null>(null);
     const [viewportHeight, setViewportHeight] = useState(900);
+    const [planLabel, setPlanLabel] = useState<string>('Starter');
+    const [billingModeLabel, setBillingModeLabel] = useState<string>('BYOK');
+    const [isFileExplorerOpen, setFileExplorerOpen] = useState(false);
+    const [attachedFiles, setAttachedFiles] = useState<LocalAttachmentFile[]>([]);
 
     // Terminal dock
     const terminal = useTerminalDock();
@@ -59,10 +74,21 @@ export default function Page() {
     const addSession = useAgentStore((state) => state.addSession);
     const removeSession = useAgentStore((state) => state.removeSession);
     const clearSessions = useAgentStore((state) => state.clearSessions);
+    const autoBounce = useAutoBounce();
+    const setAutoBounceEnabled = useAgentStore((state) => state.setAutoBounceEnabled);
+    const setMinModelsForAutoBounce = useAgentStore((state) => state.setMinModelsForAutoBounce);
 
     const allWorkflows = useMemo(
         () => [...WORKFLOWS, ...workflow.customWorkflows],
         [workflow.customWorkflows]
+    );
+    const includedAttachmentCount = useMemo(
+        () => attachedFiles.filter((file) => file.includeInDebate).length,
+        [attachedFiles]
+    );
+    const fileContextPack = useMemo(
+        () => buildFileContextPack(attachedFiles),
+        [attachedFiles]
     );
 
     // Global keyboard shortcut for command palette
@@ -91,6 +117,33 @@ export default function Page() {
         return () => window.removeEventListener('resize', updateViewport);
     }, []);
 
+    useEffect(() => {
+        const planNameById: Record<PlanId, string> = {
+            starter: 'Starter',
+            pro_lifetime: 'Pro Lifetime',
+            team_growth: 'Team Growth',
+        };
+
+        const syncBillingStatus = () => {
+            const storedPlan = window.localStorage.getItem(BILLING_PLAN_STORAGE_KEY) as PlanId | null;
+            const storedMode = window.localStorage.getItem(BILLING_MODE_STORAGE_KEY) as 'byok' | 'managed' | null;
+            if (storedPlan && planNameById[storedPlan]) {
+                setPlanLabel(planNameById[storedPlan]);
+            } else {
+                setPlanLabel('Starter');
+            }
+            setBillingModeLabel(storedMode === 'managed' ? 'Managed' : 'BYOK');
+        };
+
+        syncBillingStatus();
+        window.addEventListener('storage', syncBillingStatus);
+        window.addEventListener('agent-conductor-billing-updated', syncBillingStatus as EventListener);
+        return () => {
+            window.removeEventListener('storage', syncBillingStatus);
+            window.removeEventListener('agent-conductor-billing-updated', syncBillingStatus as EventListener);
+        };
+    }, []);
+
     // Register panel ref
     const registerPanelRef = useCallback((id: string, ref: ChatPanelRef | null) => {
         if (ref) {
@@ -103,9 +156,9 @@ export default function Page() {
     // Broadcast message to all panels
     const broadcastMessage = useCallback((content: string) => {
         panelRefs.current.forEach((ref) => {
-            ref.sendMessage(content);
+            ref.sendMessage(content, { fileContext: fileContextPack || undefined });
         });
-    }, []);
+    }, [fileContextPack]);
 
     // Keep global loading state in sync with panel loading updates.
     const handleLoadingChange = useCallback((sessionId: string, isLoading: boolean) => {
@@ -211,6 +264,12 @@ export default function Page() {
         setBounceOpen(true);
     }, []);
 
+    // Auto-bounce: triggered from SmartInput when conditions are met
+    const handleAutoBounce = useCallback((topic: string) => {
+        setBounceTopic(topic);
+        setBounceOpen(true);
+    }, []);
+
     // Handle bounce completion
     const handleBounceComplete = useCallback((finalAnswer: string) => {
         // Optionally add the final answer as a new synthesis session
@@ -237,6 +296,11 @@ export default function Page() {
         clearSessions();
         clearUsage();
     }, [clearSessions, clearUsage]);
+
+    const openSettingsTab = useCallback((tab: SettingsTab) => {
+        setSettingsInitialTab(tab);
+        setSettingsOpen(true);
+    }, []);
 
     // Calculate grid positions for freeform panels
     const getGridPosition = (index: number, total: number): { x: number; y: number } => {
@@ -323,12 +387,39 @@ export default function Page() {
                         />
                     )}
 
-                    {/* Active models count */}
+                        {/* Active models count */}
                     {sessions.length > 0 && (
                         <span className="status-pill px-2.5 py-1 rounded-lg text-[11px]">
                             {sessions.length} active
                         </span>
                     )}
+
+                    <span className="status-pill px-2.5 py-1 rounded-lg text-[11px]">
+                        Desktop First
+                    </span>
+
+                    <button
+                        onClick={() => setFileExplorerOpen((prev) => !prev)}
+                        data-active={isFileExplorerOpen || includedAttachmentCount > 0}
+                        className="control-chip px-2.5 sm:px-3 py-1.5 text-[11px] flex items-center gap-1.5"
+                        title="Open File Explorer"
+                    >
+                        <span>Files</span>
+                        <span className="ac-badge px-1.5 py-0.5 rounded text-[10px]">
+                            {includedAttachmentCount}
+                        </span>
+                    </button>
+
+                    <button
+                        onClick={() => openSettingsTab('billing')}
+                        data-active={billingModeLabel === 'Managed'}
+                        className="control-chip px-2.5 sm:px-3 py-1.5 text-[11px] flex items-center gap-1"
+                        title="Open Plans & Billing"
+                    >
+                        <span className="font-medium">{planLabel}</span>
+                        <span className="opacity-60">·</span>
+                        <span>{billingModeLabel}</span>
+                    </button>
 
                     {/* Command palette trigger */}
                     <button
@@ -351,6 +442,15 @@ export default function Page() {
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                         </svg>
+                    </button>
+
+                    {/* Settings */}
+                    <button
+                        onClick={() => setDialogueOpen(true)}
+                        className="control-chip px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm"
+                        title="Open Model Dialogue Runner"
+                    >
+                        Dialogue
                     </button>
 
                     {/* Settings */}
@@ -382,7 +482,7 @@ export default function Page() {
 
                     {/* Settings */}
                     <button
-                        onClick={() => setSettingsOpen(true)}
+                        onClick={() => openSettingsTab('providers')}
                         className="control-chip p-2"
                     >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -531,6 +631,27 @@ export default function Page() {
 
             {/* Bottom smart input */}
             <div className="input-dock p-3 sm:p-4">
+                {isFileExplorerOpen && (
+                    <div className="max-w-5xl mx-auto mb-3">
+                        <FileExplorerDock
+                            files={attachedFiles}
+                            onFilesChange={setAttachedFiles}
+                            onClose={() => setFileExplorerOpen(false)}
+                        />
+                    </div>
+                )}
+
+                {!isFileExplorerOpen && includedAttachmentCount > 0 && (
+                    <div className="max-w-3xl mx-auto mb-2">
+                        <button
+                            onClick={() => setFileExplorerOpen(true)}
+                            className="w-full text-left panel-shell rounded-xl px-3 py-2 text-xs text-[color:var(--ac-text-muted)] hover:border-[color:var(--ac-border)] transition-colors"
+                        >
+                            {includedAttachmentCount} attached file{includedAttachmentCount === 1 ? '' : 's'} active for model context.
+                        </button>
+                    </div>
+                )}
+
                 <div className="max-w-3xl mx-auto">
                     <SmartInput
                         onSubmit={broadcastMessage}
@@ -539,8 +660,11 @@ export default function Page() {
                         onSelectWorkflow={handleSelectWorkflow}
                         onSynthesize={handleSynthesize}
                         onClearAll={handleClearAll}
+                        onAutoBounce={handleAutoBounce}
                         isLoading={loadingSessionIds.size > 0}
                         sessionCount={sessions.length}
+                        autoBounceEnabled={autoBounce.enabled}
+                        minModelsForAutoBounce={autoBounce.minModels}
                     />
                 </div>
             </div>
@@ -566,8 +690,14 @@ export default function Page() {
 
             {/* Settings Modal */}
             <SettingsModal
+                key={settingsInitialTab}
                 isOpen={isSettingsOpen}
                 onClose={() => setSettingsOpen(false)}
+                initialTab={settingsInitialTab}
+                autoBounceEnabled={autoBounce.enabled}
+                minModelsForAutoBounce={autoBounce.minModels}
+                onAutoBounceToggle={setAutoBounceEnabled}
+                onMinModelsChange={setMinModelsForAutoBounce}
             />
 
             {/* Protocol Board */}
@@ -589,6 +719,12 @@ export default function Page() {
                 tokenUsage={tokenUsage}
             />
 
+            {/* Model Dialogue Runner */}
+            <ModelDialoguePanel
+                isOpen={isDialogueOpen}
+                onClose={() => setDialogueOpen(false)}
+            />
+
             {/* Routing Trace */}
             <DecisionTracePanel
                 isOpen={isTraceOpen}
@@ -605,6 +741,8 @@ export default function Page() {
                                 initialTopic={bounceTopic || ''}
                                 onComplete={handleBounceComplete}
                                 onCancel={handleBounceCancel}
+                                fileContext={fileContextPack}
+                                attachedFileCount={includedAttachmentCount}
                             />
                         </div>
 

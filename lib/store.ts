@@ -51,6 +51,12 @@ interface DebateState {
 
     /** Current bounce configuration */
     bounceConfig: BounceConfig;
+
+    /** Auto-bounce: trigger debate automatically on submit when enough models are active */
+    autoBounceEnabled: boolean;
+
+    /** Minimum active models required to trigger auto-bounce */
+    minModelsForAutoBounce: number;
 }
 
 // Main store state
@@ -112,6 +118,10 @@ interface AgentConductorState {
     clearBounceHistory: () => void;
     resetBounce: () => void;
 
+    // Auto-bounce actions
+    setAutoBounceEnabled: (enabled: boolean) => void;
+    setMinModelsForAutoBounce: (count: number) => void;
+
     // Computed helpers
     getSessionContent: (sessionId: string) => string;
     getAllSessionsContent: () => Record<string, string>;
@@ -146,6 +156,8 @@ export const useAgentStore = create<AgentConductorState>()(
                 bounceHistory: [],
                 selectedParticipants: [],
                 bounceConfig: { ...DEFAULT_BOUNCE_CONFIG },
+                autoBounceEnabled: true,
+                minModelsForAutoBounce: 2,
             },
 
             // Session actions
@@ -310,6 +322,14 @@ export const useAgentStore = create<AgentConductorState>()(
                 },
             })),
 
+            // Auto-bounce actions
+            setAutoBounceEnabled: (enabled) => set((state) => ({
+                debate: { ...state.debate, autoBounceEnabled: enabled },
+            })),
+            setMinModelsForAutoBounce: (count) => set((state) => ({
+                debate: { ...state.debate, minModelsForAutoBounce: Math.max(2, Math.min(6, count)) },
+            })),
+
             // Computed helpers
             getSessionContent: (sessionId) => {
                 const session = get().sessions.find((s) => s.id === sessionId);
@@ -350,6 +370,10 @@ export const useAgentStore = create<AgentConductorState>()(
                 workflow: {
                     customWorkflows: state.workflow.customWorkflows,
                 },
+                debate: {
+                    autoBounceEnabled: state.debate.autoBounceEnabled,
+                    minModelsForAutoBounce: state.debate.minModelsForAutoBounce,
+                },
             }),
         }
     )
@@ -365,3 +389,7 @@ export const useDebate = () => useAgentStore((state) => state.debate);
 export const useBounceState = () => useAgentStore((state) => state.debate.bounce);
 export const useBounceConfig = () => useAgentStore((state) => state.debate.bounceConfig);
 export const useSelectedParticipants = () => useAgentStore((state) => state.debate.selectedParticipants);
+export const useAutoBounce = () => useAgentStore((state) => ({
+    enabled: state.debate.autoBounceEnabled,
+    minModels: state.debate.minModelsForAutoBounce,
+}));

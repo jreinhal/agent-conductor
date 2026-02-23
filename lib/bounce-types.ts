@@ -5,6 +5,27 @@
  * Inspired by SENTINEL's AgenticRagOrchestrator pattern.
  */
 
+import { z } from 'zod';
+
+// ============================================================================
+// Structured Bounce Response (Zod-validated JSON output from models)
+// ============================================================================
+
+export const StructuredBounceResponseSchema = z.object({
+    thought: z.string().describe('Internal chain-of-thought reasoning'),
+    proposal: z.string().describe('One-sentence proposed resolution'),
+    confidence: z.number().min(0).max(100).describe('Confidence 0-100'),
+    reasoning: z.string().describe('Key reasoning for the position'),
+    critiques: z.array(z.string()).describe('Critiques of other proposals'),
+    concessions: z.array(z.string()).describe('Points conceded to other models'),
+    stance: z.enum([
+        'strongly_agree', 'agree', 'neutral', 'disagree',
+        'strongly_disagree', 'refine', 'synthesize',
+    ]).describe('Stance on the current topic/proposals'),
+});
+
+export type StructuredBounceResponse = z.infer<typeof StructuredBounceResponseSchema>;
+
 // ============================================================================
 // Core Bounce Configuration
 // ============================================================================
@@ -75,7 +96,7 @@ export interface ParticipantConfig {
 
 export const DEFAULT_BOUNCE_CONFIG: BounceConfig = {
     participants: [],
-    mode: 'sequential',
+    mode: 'parallel',
     maxRounds: 3,
     consensusThreshold: 0.7,
     consensusMode: 'weighted',
