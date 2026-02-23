@@ -717,7 +717,8 @@ export function analyzeConsensus(
             const embB = resolvedOptions.embeddings?.get(responses[j].participantSessionId);
 
             if (embA && embB) {
-                totalSimilarity += cosineSimilarity(embA, embB);
+                // Normalize from [-1, 1] to [0, 1] to match TF-IDF range
+                totalSimilarity += Math.max(0, cosineSimilarity(embA, embB));
             } else {
                 const wordSimilarity = calculateSimilarity(responses[i].content, responses[j].content);
                 const bigramSimilarity = calculateBigramSimilarity(responses[i].content, responses[j].content);

@@ -40,6 +40,8 @@ import {
     identifyPrunableParticipants,
 } from './consensus-analyzer';
 
+import { MODELS } from './models';
+
 // ============================================================================
 // Orchestrator Class
 // ============================================================================
@@ -582,7 +584,15 @@ export class BounceOrchestrator {
             return configuredJudge;
         }
 
-        // Rank participant models by average confidence across all rounds
+        // Try to find a non-participant model from the available model pool
+        const nonParticipantModel = MODELS.find(
+            m => m.id !== 'auto-router' && !participantModelIds.has(m.id)
+        );
+        if (nonParticipantModel) {
+            return nonParticipantModel.id;
+        }
+
+        // All available models are participants — fall back to highest-confidence participant
         const allResponses = this.state.rounds.flatMap(r => r.responses);
         const modelScores = new Map<string, { totalConf: number; count: number }>();
 
@@ -593,7 +603,6 @@ export class BounceOrchestrator {
             modelScores.set(r.modelId, existing);
         }
 
-        // Pick the participant with the highest average confidence as judge
         let bestModel = configuredJudge;
         let bestAvg = -1;
         for (const [modelId, { totalConf, count }] of modelScores) {
