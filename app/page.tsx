@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Message } from 'ai';
-import { Zap, X, Clock } from 'lucide-react';
+import { Zap, X, Clock, Paperclip, MessageSquare } from 'lucide-react';
 
 // Components
 import { Canvas, DraggablePanel } from '@/components/Canvas';
@@ -23,6 +23,8 @@ import { RunTimelineStrip } from '@/components/RunTimelineStrip';
 import { SessionHistory } from '@/components/SessionHistory';
 import { DebateReplay } from '@/components/DebateReplay';
 import { FirstRunWizard, useFirstRun } from '@/components/FirstRunWizard';
+import { FileExplorerDock } from '@/components/FileExplorerDock';
+import { ModelDialoguePanel } from '@/components/ModelDialoguePanel';
 
 // Data & State
 import type { SerializedBounceSession } from '@/lib/bounce-types';
@@ -30,6 +32,8 @@ import { MODELS } from '@/lib/models';
 import { PERSONAS } from '@/lib/personas';
 import { WORKFLOWS } from '@/lib/workflows';
 import { useAgentStore, useAutoBounce } from '@/lib/store';
+import type { LocalAttachmentFile } from '@/lib/file-context';
+import { buildFileContextPack } from '@/lib/file-context';
 
 type ViewMode = 'grid' | 'freeform' | 'resizable';
 
@@ -43,9 +47,12 @@ export default function Page() {
     const [isHistoryOpen, setHistoryOpen] = useState(false);
     const [replaySession, setReplaySession] = useState<SerializedBounceSession | null>(null);
     const [viewMode, setViewMode] = useState<ViewMode>('grid');
+    const [isFileExplorerOpen, setFileExplorerOpen] = useState(false);
+    const [isModelDialogueOpen, setModelDialogueOpen] = useState(false);
     const firstRun = useFirstRun();
     const [isBounceOpen, setBounceOpen] = useState(false);
     const [bounceTopic, setBounceTopic] = useState<string | null>(null);
+    const [attachedFiles, setAttachedFiles] = useState<LocalAttachmentFile[]>([]);
     const [viewportHeight, setViewportHeight] = useState(900);
 
     // Terminal dock
@@ -75,6 +82,21 @@ export default function Page() {
         () => [...WORKFLOWS, ...workflow.customWorkflows],
         [workflow.customWorkflows]
     );
+
+    const includedFileCount = useMemo(
+        () => attachedFiles.filter((file) => file.includeInDebate).length,
+        [attachedFiles]
+    );
+
+    const fileContextPack = useMemo(
+        () => buildFileContextPack(attachedFiles),
+        [attachedFiles]
+    );
+
+    const withFileContext = useCallback((message: string) => {
+        if (!fileContextPack) return message;
+        return `${message}\n\n${fileContextPack}`;
+    }, [fileContextPack]);
 
     // Global keyboard shortcut for command palette
     useEffect(() => {
@@ -113,10 +135,11 @@ export default function Page() {
 
     // Broadcast message to all panels
     const broadcastMessage = useCallback((content: string) => {
+        const enrichedContent = withFileContext(content);
         panelRefs.current.forEach((ref) => {
-            ref.sendMessage(content);
+            ref.sendMessage(enrichedContent);
         });
-    }, []);
+    }, [withFileContext]);
 
     // Keep global loading state in sync with panel loading updates.
     const handleLoadingChange = useCallback((sessionId: string, isLoading: boolean) => {
@@ -251,9 +274,9 @@ export default function Page() {
 
     // Auto-bounce: start a debate directly from SmartInput when enough models are active
     const handleAutoBounce = useCallback((topic: string) => {
-        setBounceTopic(topic);
+        setBounceTopic(withFileContext(topic));
         setBounceOpen(true);
-    }, []);
+    }, [withFileContext]);
 
     // Clear all
     const handleClearAll = useCallback(() => {
@@ -353,6 +376,23 @@ export default function Page() {
                         </span>
                     )}
 
+                    {/* Attached file count */}
+                    {attachedFiles.length > 0 && (
+                        <span className="status-pill px-2.5 py-1 rounded-lg text-[11px]">
+                            files {includedFileCount}/{attachedFiles.length}
+                        </span>
+                    )}
+
+                    {/* File explorer */}
+                    <button
+                        onClick={() => setFileExplorerOpen(true)}
+                        data-active={isFileExplorerOpen}
+                        className="control-chip p-2"
+                        title="Open File Explorer"
+                    >
+                        <Paperclip className="w-5 h-5" />
+                    </button>
+
                     {/* Session history */}
                     <button
                         onClick={() => setHistoryOpen(true)}
@@ -383,6 +423,16 @@ export default function Page() {
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                         </svg>
+                    </button>
+
+                    {/* Model dialogue */}
+                    <button
+                        onClick={() => setModelDialogueOpen(true)}
+                        data-active={isModelDialogueOpen}
+                        className="control-chip p-2"
+                        title="Open Codex + Claude Dialogue"
+                    >
+                        <MessageSquare className="w-5 h-5" />
                     </button>
 
                     {/* Settings */}
@@ -579,6 +629,33 @@ export default function Page() {
                     />
                 </div>
             </div>
+
+            {/* File explorer */}
+            {isFileExplorerOpen && (
+                <>
+                    <div
+                        className="fixed inset-0 z-40 bg-black/35 backdrop-blur-sm"
+                        onClick={() => setFileExplorerOpen(false)}
+                        aria-hidden="true"
+                    />
+                    <div className="fixed inset-0 z-50 p-4 sm:p-6 pointer-events-none">
+                        <div className="h-full flex items-end justify-center">
+                            <div className="w-full max-w-6xl pointer-events-auto">
+                                <FileExplorerDock
+                                    files={attachedFiles}
+                                    onFilesChange={setAttachedFiles}
+                                    onClose={() => setFileExplorerOpen(false)}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
+
+            <ModelDialoguePanel
+                isOpen={isModelDialogueOpen}
+                onClose={() => setModelDialogueOpen(false)}
+            />
 
             {/* Terminal Dock */}
             <TerminalDock
