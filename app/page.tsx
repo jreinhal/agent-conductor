@@ -21,9 +21,11 @@ import { SessionInsightsPanel } from '@/components/SessionInsightsPanel';
 import { DecisionTracePanel } from '@/components/DecisionTracePanel';
 import { RunTimelineStrip } from '@/components/RunTimelineStrip';
 import { SessionHistory } from '@/components/SessionHistory';
+import { DebateReplay } from '@/components/DebateReplay';
 import { FirstRunWizard, useFirstRun } from '@/components/FirstRunWizard';
 
 // Data & State
+import type { SerializedBounceSession } from '@/lib/bounce-types';
 import { MODELS } from '@/lib/models';
 import { PERSONAS } from '@/lib/personas';
 import { WORKFLOWS } from '@/lib/workflows';
@@ -39,6 +41,7 @@ export default function Page() {
     const [isInsightsOpen, setInsightsOpen] = useState(false);
     const [isTraceOpen, setTraceOpen] = useState(false);
     const [isHistoryOpen, setHistoryOpen] = useState(false);
+    const [replaySession, setReplaySession] = useState<SerializedBounceSession | null>(null);
     const [viewMode, setViewMode] = useState<ViewMode>('grid');
     const firstRun = useFirstRun();
     const [isBounceOpen, setBounceOpen] = useState(false);
@@ -238,6 +241,12 @@ export default function Page() {
     const handleBounceCancel = useCallback(() => {
         setBounceOpen(false);
         setBounceTopic(null);
+    }, []);
+
+    // Open debate replay from session history
+    const handleReplayDebate = useCallback((session: SerializedBounceSession) => {
+        setReplaySession(session);
+        setHistoryOpen(false);
     }, []);
 
     // Auto-bounce: start a debate directly from SmartInput when enough models are active
@@ -629,7 +638,33 @@ export default function Page() {
             <SessionHistory
                 isOpen={isHistoryOpen}
                 onClose={() => setHistoryOpen(false)}
+                onReplayDebate={handleReplayDebate}
             />
+
+            {/* Debate Replay */}
+            {replaySession && (
+                <>
+                    <div
+                        className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+                        onClick={() => setReplaySession(null)}
+                        onKeyDown={(e) => { if (e.key === 'Escape') setReplaySession(null); }}
+                        role="button"
+                        tabIndex={-1}
+                        aria-label="Close debate replay"
+                    />
+                    <div
+                        className="fixed inset-y-0 right-0 z-50 flex ac-slide-panel-enter"
+                        style={{ width: 'min(40rem, 90vw)' }}
+                    >
+                        <div className="flex-1 flex flex-col bg-[color:var(--ac-bg)] border-l border-[color:var(--ac-border)] shadow-2xl overflow-hidden">
+                            <DebateReplay
+                                session={replaySession}
+                                onClose={() => setReplaySession(null)}
+                            />
+                        </div>
+                    </div>
+                </>
+            )}
 
             {/* First-run wizard */}
             {firstRun.isFirstRun && (

@@ -222,12 +222,21 @@ export class BounceOrchestrator {
     }
 
     private addParticipant(participant: ParticipantConfig): void {
-        if (this.state.status === 'running') {
-            console.warn('Cannot add participant while debate is running');
+        // Prevent duplicates
+        if (this.state.config.participants.some(p => p.sessionId === participant.sessionId)) {
             return;
         }
 
         this.state.config.participants.push(participant);
+
+        // If debate is in progress, emit tag-in event so UI and next round pick them up
+        if (this.state.status === 'running' || this.state.status === 'paused' || this.state.status === 'waiting_user') {
+            this.emit({
+                type: 'PARTICIPANT_TAGGED_IN',
+                participant,
+                reason: 'Specialist tagged in mid-debate',
+            });
+        }
     }
 
     private removeParticipant(sessionId: string): void {

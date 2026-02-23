@@ -7,6 +7,7 @@ import {
     Square,
     SkipForward,
     Users,
+    UserPlus,
     MessageSquare,
     Zap,
     Settings2,
@@ -15,6 +16,7 @@ import {
     Check,
     X,
 } from 'lucide-react';
+import { PERSONAS } from '@/lib/personas';
 import {
     useAgentStore,
     useBounceState,
@@ -78,6 +80,7 @@ export function BounceController({
     const [userInterjection, setUserInterjection] = useState('');
     const [activeThinkers, setActiveThinkers] = useState<string[]>([]);
     const [lastActivityAt, setLastActivityAt] = useState<number | null>(null);
+    const [showTagIn, setShowTagIn] = useState(false);
     const [clockNow, setClockNow] = useState<number>(0);
     const [waitingSinceAt, setWaitingSinceAt] = useState<number | null>(null);
     const [autoContinueEnabled, setAutoContinueEnabled] = useState<boolean>(true);
@@ -205,6 +208,10 @@ export function BounceController({
                 // Pruned participants are tracked in orchestrator state
                 // UI updates via CONSENSUS_UPDATED and ROUND_COMPLETE
                 break;
+
+            case 'PARTICIPANT_TAGGED_IN':
+                setLastActivityAt(Date.now());
+                break;
         }
     }, [updateBounceState, onComplete, onCancel]);
 
@@ -288,6 +295,23 @@ export function BounceController({
     const handleContinue = useCallback(async () => {
         setWaitingSinceAt(null);
         await orchestratorRef.current?.dispatch({ type: 'RESUME' });
+    }, []);
+
+    // Tag in a specialist mid-debate
+    const handleTagIn = useCallback(async (persona: typeof PERSONAS[number]) => {
+        const participant = {
+            sessionId: `tagged-${persona.id}-${Date.now()}`,
+            modelId: persona.modelId,
+            title: persona.name,
+            systemPrompt: persona.systemPrompt,
+            userWeight: 3,
+            reliabilityWeight: 1,
+        };
+        await orchestratorRef.current?.dispatch({
+            type: 'ADD_PARTICIPANT',
+            participant,
+        });
+        setShowTagIn(false);
     }, []);
 
     useEffect(() => {
@@ -993,6 +1017,51 @@ export function BounceController({
                                         );
                                     })}
                                 </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Tag-in Specialist (visible during active debate) */}
+            {isActive && (
+                <div className="px-4 pb-2">
+                    <button
+                        onClick={() => setShowTagIn((prev) => !prev)}
+                        className="control-chip w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors"
+                    >
+                        <UserPlus className="w-3.5 h-3.5" />
+                        Tag In Specialist
+                        {showTagIn ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
+                    </button>
+                    {showTagIn && (
+                        <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto">
+                            {PERSONAS.filter(
+                                (p) => !bounceState.config.participants.some(
+                                    (existing) => existing.title === p.name
+                                )
+                            ).map((persona) => (
+                                <button
+                                    key={persona.id}
+                                    onClick={() => handleTagIn(persona)}
+                                    className="w-full text-left px-3 py-2 rounded-lg ac-soft-surface hover:bg-[color:var(--ac-surface)] transition-colors"
+                                >
+                                    <p className="text-xs font-medium text-[color:var(--ac-text)]">
+                                        {persona.name}
+                                    </p>
+                                    <p className="text-[10px] text-[color:var(--ac-text-muted)]">
+                                        {persona.role} &middot; {persona.modelId}
+                                    </p>
+                                </button>
+                            ))}
+                            {PERSONAS.filter(
+                                (p) => !bounceState.config.participants.some(
+                                    (existing) => existing.title === p.name
+                                )
+                            ).length === 0 && (
+                                <p className="text-[10px] text-[color:var(--ac-text-muted)] text-center py-2">
+                                    All specialists are already in the debate
+                                </p>
                             )}
                         </div>
                     )}
