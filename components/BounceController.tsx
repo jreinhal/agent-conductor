@@ -847,33 +847,6 @@ export function BounceController({
             {/* Consensus Metrics (only after first consensus analysis) */}
             {isActive && bounceState.consensus && (
                 <div className="p-4 border-b border-[color:var(--ac-border-soft)]">
-                    {activityMessage && (
-                        <div className={`mb-3 px-3 py-2 rounded-lg text-xs border ${
-                            activityTone === 'active'
-                                ? 'text-cyan-300 border-cyan-500/40 bg-cyan-500/10'
-                                : activityTone === 'waiting'
-                                ? 'text-amber-300 border-amber-500/40 bg-amber-500/10'
-                                : activityTone === 'warning'
-                                ? 'text-[color:var(--ac-danger)] border-[color:var(--ac-danger)]/40 bg-[color:var(--ac-danger)]/10'
-                                : 'text-[color:var(--ac-text-muted)] border-[color:var(--ac-border-soft)] bg-[color:var(--ac-surface)]'
-                        }`}>
-                            <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2">
-                                    {bounceState.status === 'running' && (
-                                        <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${freshnessDotColor}`} title={`Last activity ${secondsSinceActivity}s ago`} />
-                                    )}
-                                    <span>{activityMessage}</span>
-                                </div>
-                                <span className="font-mono text-[10px] opacity-80">
-                                    {secondsSinceActivity}s ago
-                                </span>
-                            </div>
-                            {gateReason && (
-                                <div className="mt-1.5 text-[11px] opacity-75">{gateReason}</div>
-                            )}
-                        </div>
-                    )}
-
                     <div className="flex items-center justify-between mb-2">
                         <span className="text-sm text-[color:var(--ac-text-dim)]">
                             Round {bounceState.currentRound} of {bounceConfig.maxRounds}

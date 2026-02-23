@@ -720,14 +720,20 @@ export class BounceOrchestrator {
  * Try to parse model output as structured JSON. Returns null on failure
  * (graceful degradation to legacy regex extraction).
  */
-function tryParseStructuredResponse(content: string): StructuredBounceResponse | null {
+export function tryParseStructuredResponse(content: string): StructuredBounceResponse | null {
     try {
-        // Models may wrap JSON in markdown code fences
-        const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/) ||
-            content.match(/(\{[\s\S]*"stance"[\s\S]*\})/);
-        if (!jsonMatch) return null;
+        // Models may wrap JSON in markdown code fences or return raw JSON
+        const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+        // Fallback: find the last top-level JSON object containing "stance"
+        let rawJson: string | undefined = jsonMatch?.[1];
+        if (!rawJson) {
+            const braceBlocks = content.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g);
+            const stanceBlock = braceBlocks?.reverse().find(b => b.includes('"stance"'));
+            if (!stanceBlock) return null;
+            rawJson = stanceBlock;
+        }
 
-        const parsed = JSON.parse(jsonMatch[1]);
+        const parsed = JSON.parse(rawJson);
         const result = StructuredBounceResponseSchema.safeParse(parsed);
         return result.success ? result.data : null;
     } catch {
