@@ -210,6 +210,9 @@ export function BounceController({
                 break;
 
             case 'PARTICIPANT_TAGGED_IN':
+                updateBounceState({
+                    config: orchestratorRef.current?.getState().config,
+                });
                 setLastActivityAt(Date.now());
                 break;
         }
