@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Message } from 'ai';
-import { Zap, X } from 'lucide-react';
+import { Zap, X, Clock } from 'lucide-react';
 
 // Components
 import { Canvas, DraggablePanel } from '@/components/Canvas';
@@ -20,6 +20,8 @@ import { ProtocolBoard } from '@/components/ProtocolBoard';
 import { SessionInsightsPanel } from '@/components/SessionInsightsPanel';
 import { DecisionTracePanel } from '@/components/DecisionTracePanel';
 import { RunTimelineStrip } from '@/components/RunTimelineStrip';
+import { SessionHistory } from '@/components/SessionHistory';
+import { FirstRunWizard, useFirstRun } from '@/components/FirstRunWizard';
 
 // Data & State
 import { MODELS } from '@/lib/models';
@@ -36,7 +38,9 @@ export default function Page() {
     const [isProtocolOpen, setProtocolOpen] = useState(false);
     const [isInsightsOpen, setInsightsOpen] = useState(false);
     const [isTraceOpen, setTraceOpen] = useState(false);
+    const [isHistoryOpen, setHistoryOpen] = useState(false);
     const [viewMode, setViewMode] = useState<ViewMode>('grid');
+    const firstRun = useFirstRun();
     const [isBounceOpen, setBounceOpen] = useState(false);
     const [bounceTopic, setBounceTopic] = useState<string | null>(null);
     const [viewportHeight, setViewportHeight] = useState(900);
@@ -340,6 +344,15 @@ export default function Page() {
                         </span>
                     )}
 
+                    {/* Session history */}
+                    <button
+                        onClick={() => setHistoryOpen(true)}
+                        className="control-chip p-2"
+                        title="Session History"
+                    >
+                        <Clock className="w-5 h-5" />
+                    </button>
+
                     {/* Command palette trigger */}
                     <button
                         onClick={() => setCommandOpen(true)}
@@ -611,6 +624,17 @@ export default function Page() {
                 isOpen={isTraceOpen}
                 onClose={() => setTraceOpen(false)}
             />
+
+            {/* Session History */}
+            <SessionHistory
+                isOpen={isHistoryOpen}
+                onClose={() => setHistoryOpen(false)}
+            />
+
+            {/* First-run wizard */}
+            {firstRun.isFirstRun && (
+                <FirstRunWizard onComplete={firstRun.markComplete} />
+            )}
 
             {/* Bounce/Debate Slide-over Panel — conditionally mounted to ensure cleanup on close */}
             {isBounceOpen && (

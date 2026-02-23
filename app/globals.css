@@ -2021,13 +2021,22 @@ body {
   color: var(--ac-text-dim);
 }
 
-/* Debate panel slide-over transitions */
+/* Panel slide-over transitions (full-width, distinct from utility slideIn* animations) */
 .ac-slide-panel-enter {
-  animation: slideIn 300ms ease-out;
+  animation: acPanelSlideRight 300ms ease-out;
 }
 
-@keyframes slideIn {
+.ac-slide-panel-enter-left {
+  animation: acPanelSlideLeft 300ms ease-out;
+}
+
+@keyframes acPanelSlideRight {
   from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes acPanelSlideLeft {
+  from { transform: translateX(-100%); opacity: 0; }
   to { transform: translateX(0); opacity: 1; }
 }
 
