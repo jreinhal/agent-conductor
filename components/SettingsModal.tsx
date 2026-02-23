@@ -84,79 +84,17 @@ const PROVIDERS: ProviderConfig[] = [
 
 const STORAGE_KEY = 'agent_conductor_connections';
 const THEME_KEY = 'agent_conductor_theme';
-export const BILLING_PLAN_STORAGE_KEY = 'agent_conductor_plan';
-export const BILLING_MODE_STORAGE_KEY = 'agent_conductor_billing_mode';
-const MANAGED_SPEND_STORAGE_KEY = 'agent_conductor_managed_spend';
 
 type Theme = 'light' | 'dark' | 'system';
-export type SettingsTab = 'providers' | 'appearance' | 'shortcuts' | 'billing';
-export type PlanId = 'starter' | 'pro_lifetime' | 'team_growth';
-type BillingMode = 'byok' | 'managed';
-
-interface PlanTier {
-    id: PlanId;
-    name: string;
-    price: string;
-    billing: string;
-    tagline: string;
-    features: string[];
-    cta: string;
-    highlighted?: boolean;
-    badge?: string;
-}
-
-const PLAN_TIERS: PlanTier[] = [
-    {
-        id: 'starter',
-        name: 'Starter',
-        price: '$0',
-        billing: 'free',
-        tagline: 'BYOK setup for solo experimentation.',
-        features: [
-            'Bring-your-own API keys',
-            'Up to 3 active model panes',
-            'Core debate + routing trace',
-        ],
-        cta: 'Current Plan',
-    },
-    {
-        id: 'pro_lifetime',
-        name: 'Pro Lifetime',
-        price: '$79',
-        billing: 'one-time',
-        tagline: 'Power-user workspace with no recurring seat fee.',
-        features: [
-            'Unlimited active panes',
-            'Saved debate templates and exports',
-            'Advanced protocol + analytics panels',
-        ],
-        cta: 'Upgrade Once',
-        highlighted: true,
-        badge: 'Popular',
-    },
-    {
-        id: 'team_growth',
-        name: 'Team Growth',
-        price: '$29',
-        billing: 'per seat / month',
-        tagline: 'Shared governance and collaboration for teams.',
-        features: [
-            'Shared workspace and debate history',
-            'Role-based access and audit controls',
-            'Priority support and onboarding',
-        ],
-        cta: 'Start Team Trial',
-    },
-];
+type SettingsTab = 'providers' | 'appearance' | 'shortcuts';
 
 interface SettingsModalProps {
     isOpen: boolean;
     onClose: () => void;
-    initialTab?: SettingsTab;
     autoBounceEnabled?: boolean;
     minModelsForAutoBounce?: number;
     onAutoBounceToggle?: (enabled: boolean) => void;
-    onMinModelsChange?: (count: number) => void;
+    onMinModelsChange?: (min: number) => void;
 }
 
 function readStoredConnections(): Record<string, boolean> {
@@ -181,35 +119,9 @@ function readStoredTheme(): Theme {
     return 'dark';
 }
 
-function readStoredPlan(): PlanId {
-    if (typeof window === 'undefined') return 'starter';
-    const raw = window.localStorage.getItem(BILLING_PLAN_STORAGE_KEY);
-    if (raw === 'starter' || raw === 'pro_lifetime' || raw === 'team_growth') {
-        return raw;
-    }
-    return 'starter';
-}
-
-function readStoredBillingMode(): BillingMode {
-    if (typeof window === 'undefined') return 'byok';
-    const raw = window.localStorage.getItem(BILLING_MODE_STORAGE_KEY);
-    if (raw === 'byok' || raw === 'managed') {
-        return raw;
-    }
-    return 'byok';
-}
-
-function readStoredManagedSpend(): number {
-    if (typeof window === 'undefined') return 124.8;
-    const raw = Number.parseFloat(window.localStorage.getItem(MANAGED_SPEND_STORAGE_KEY) || '');
-    if (!Number.isFinite(raw)) return 124.8;
-    return Math.max(0, Math.min(5000, raw));
-}
-
 export function SettingsModal({
     isOpen,
     onClose,
-    initialTab = 'providers',
     autoBounceEnabled = true,
     minModelsForAutoBounce = 2,
     onAutoBounceToggle,
@@ -218,11 +130,7 @@ export function SettingsModal({
     const [connections, setConnections] = useState<Record<string, boolean>>(() => readStoredConnections());
     const [pendingSignIns, setPendingSignIns] = useState<Record<string, boolean>>({});
     const [theme, setTheme] = useState<Theme>(() => readStoredTheme());
-    const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
-    const [selectedPlan, setSelectedPlan] = useState<PlanId>(() => readStoredPlan());
-    const [billingMode, setBillingMode] = useState<BillingMode>(() => readStoredBillingMode());
-    const [monthlyPlatformSpend, setMonthlyPlatformSpend] = useState<number>(() => readStoredManagedSpend());
-    const [platformFeeRate] = useState<number>(5.5);
+    const [activeTab, setActiveTab] = useState<SettingsTab>('providers');
 
     // Apply theme
     useEffect(() => {
@@ -241,24 +149,6 @@ export function SettingsModal({
         }
         localStorage.setItem(THEME_KEY, theme);
     }, [theme]);
-
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-        window.localStorage.setItem(BILLING_PLAN_STORAGE_KEY, selectedPlan);
-        window.dispatchEvent(new CustomEvent('agent-conductor-billing-updated'));
-    }, [selectedPlan]);
-
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-        window.localStorage.setItem(BILLING_MODE_STORAGE_KEY, billingMode);
-        window.dispatchEvent(new CustomEvent('agent-conductor-billing-updated'));
-    }, [billingMode]);
-
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-        window.localStorage.setItem(MANAGED_SPEND_STORAGE_KEY, monthlyPlatformSpend.toFixed(2));
-        window.dispatchEvent(new CustomEvent('agent-conductor-billing-updated'));
-    }, [monthlyPlatformSpend]);
 
     // Save connections to localStorage
     const saveConnections = (updated: Record<string, boolean>) => {
@@ -298,39 +188,6 @@ export function SettingsModal({
     if (!isOpen) return null;
 
     const connectedCount = Object.values(connections).filter(Boolean).length;
-    const selectedTier = PLAN_TIERS.find((tier) => tier.id === selectedPlan) || PLAN_TIERS[0];
-    const managedPlatformFee = monthlyPlatformSpend * (platformFeeRate / 100);
-    const readinessChecks = [
-        {
-            id: 'plan',
-            label: 'Paid packaging selected',
-            passed: selectedPlan !== 'starter',
-            detail: selectedPlan === 'starter' ? 'Starter plan active' : `${selectedTier.name} active`,
-        },
-        {
-            id: 'providers',
-            label: 'Multi-provider coverage',
-            passed: connectedCount >= 2,
-            detail: `${connectedCount} provider${connectedCount === 1 ? '' : 's'} connected`,
-        },
-        {
-            id: 'billing_mode',
-            label: 'Managed controls enabled',
-            passed: billingMode === 'managed',
-            detail: billingMode === 'managed' ? 'Managed routing active' : 'BYOK mode active',
-        },
-        {
-            id: 'usage_visibility',
-            label: 'Usage economics visible',
-            passed: billingMode !== 'managed' || monthlyPlatformSpend > 0,
-            detail: billingMode === 'managed'
-                ? `Fee preview at $${managedPlatformFee.toFixed(2)}/mo`
-                : 'Provider-billed BYOK economics',
-        },
-    ];
-    const readinessScore = Math.round(
-        (readinessChecks.filter((check) => check.passed).length / readinessChecks.length) * 100
-    );
 
     const TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
         {
@@ -359,15 +216,6 @@ export function SettingsModal({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                 </svg>
             )
-        },
-        {
-            id: 'billing',
-            label: 'Plans & Billing',
-            icon: (
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 9V7a5 5 0 00-10 0v2m-2 0h14a1 1 0 011 1v9a2 2 0 01-2 2H6a2 2 0 01-2-2v-9a1 1 0 011-1z" />
-                </svg>
-            )
         }
     ];
 
@@ -381,7 +229,7 @@ export function SettingsModal({
             }}
         >
             <div
-                className="ac-modal-shell rounded-2xl w-full max-w-2xl overflow-hidden bg-[color:var(--ac-surface-strong)]"
+                className="ac-modal-shell rounded-2xl w-full max-w-2xl overflow-hidden"
                 onClick={(e) => e.stopPropagation()}
                 style={{ animation: 'modalEnter 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards' }}
             >
@@ -598,50 +446,6 @@ export function SettingsModal({
 
                     {activeTab === 'appearance' && (
                         <div className="p-6 space-y-6">
-                            {/* Auto-Bounce */}
-                            <div>
-                                <h3 className="text-sm font-medium text-[color:var(--ac-text)] mb-3">Debate Behavior</h3>
-                                <div className="space-y-3">
-                                    <div className="flex items-center justify-between p-3 rounded-xl ac-soft-surface">
-                                        <div>
-                                            <p className="text-sm font-medium text-[color:var(--ac-text)]">Auto-bounce</p>
-                                            <p className="text-xs text-[color:var(--ac-text-dim)] mt-0.5">
-                                                Automatically start a debate when you submit a message with {minModelsForAutoBounce}+ models active
-                                            </p>
-                                        </div>
-                                        <button
-                                            onClick={() => onAutoBounceToggle?.(!autoBounceEnabled)}
-                                            className={`w-10 h-6 rounded-full transition-colors ${
-                                                autoBounceEnabled
-                                                    ? 'bg-[color:var(--ac-accent)]'
-                                                    : 'bg-gray-300 dark:bg-gray-600'
-                                            }`}
-                                        >
-                                            <div className={`w-4 h-4 bg-white rounded-full transition-transform ${
-                                                autoBounceEnabled
-                                                    ? 'translate-x-5'
-                                                    : 'translate-x-1'
-                                            }`} />
-                                        </button>
-                                    </div>
-                                    {autoBounceEnabled && (
-                                        <div className="px-3">
-                                            <label className="block text-xs text-[color:var(--ac-text-muted)] mb-1">
-                                                Minimum models for auto-bounce: {minModelsForAutoBounce}
-                                            </label>
-                                            <input
-                                                type="range"
-                                                min={2}
-                                                max={6}
-                                                value={minModelsForAutoBounce}
-                                                onChange={(e) => onMinModelsChange?.(parseInt(e.target.value))}
-                                                className="w-full"
-                                            />
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
                             {/* Theme Selector */}
                             <div>
                                 <h3 className="text-sm font-medium text-[color:var(--ac-text)] mb-3">Theme</h3>
@@ -718,6 +522,45 @@ export function SettingsModal({
                                     </div>
                                 </div>
                             </div>
+
+                            {/* Debate Behavior */}
+                            <div>
+                                <h3 className="text-sm font-medium text-[color:var(--ac-text)] mb-3">Debate Behavior</h3>
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-sm text-[color:var(--ac-text)]">Auto-bounce</p>
+                                            <p className="text-xs text-[color:var(--ac-text-dim)]">
+                                                Automatically start a debate when enough models are active
+                                            </p>
+                                        </div>
+                                        <button
+                                            onClick={() => onAutoBounceToggle?.(!autoBounceEnabled)}
+                                            className={`relative w-11 h-6 rounded-full transition-colors ${
+                                                autoBounceEnabled ? 'bg-[color:var(--ac-accent)]' : 'bg-[color:var(--ac-border)]'
+                                            }`}
+                                        >
+                                            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                                                autoBounceEnabled ? 'translate-x-5' : ''
+                                            }`} />
+                                        </button>
+                                    </div>
+                                    {autoBounceEnabled && (
+                                        <div className="flex items-center justify-between">
+                                            <p className="text-sm text-[color:var(--ac-text-dim)]">Minimum models</p>
+                                            <select
+                                                value={minModelsForAutoBounce}
+                                                onChange={(e) => onMinModelsChange?.(Number(e.target.value))}
+                                                className="ac-soft-surface border border-[color:var(--ac-border)] rounded-lg px-2 py-1 text-sm text-[color:var(--ac-text)]"
+                                            >
+                                                {[2, 3, 4, 5].map(n => (
+                                                    <option key={n} value={n}>{n}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     )}
 
@@ -750,221 +593,6 @@ export function SettingsModal({
                                         </div>
                                     </div>
                                 ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {activeTab === 'billing' && (
-                        <div className="p-6 space-y-5">
-                            <div className="rounded-xl border border-[color:var(--ac-border-soft)] p-4 bg-[color:var(--ac-surface)]">
-                                <div className="flex items-start justify-between gap-3">
-                                    <div>
-                                        <h3 className="text-sm font-semibold text-[color:var(--ac-text)]">Revenue Model Snapshot</h3>
-                                        <p className="text-xs text-[color:var(--ac-text-dim)] mt-1">
-                                            Blend one-time upgrades, subscriptions, and managed-routing fees.
-                                        </p>
-                                    </div>
-                                    <span className="ac-badge px-2 py-1 rounded text-xs">
-                                        Market Ready
-                                    </span>
-                                </div>
-                                <div className="mt-3 grid grid-cols-1 sm:grid-cols-4 gap-2 text-xs">
-                                    <div className="ac-soft-surface rounded-lg px-3 py-2">
-                                        <div className="text-[color:var(--ac-text-muted)]">Current plan</div>
-                                        <div className="text-[color:var(--ac-text)] font-medium mt-0.5">
-                                            {selectedTier.name}
-                                        </div>
-                                    </div>
-                                    <div className="ac-soft-surface rounded-lg px-3 py-2">
-                                        <div className="text-[color:var(--ac-text-muted)]">Billing mode</div>
-                                        <div className="text-[color:var(--ac-text)] font-medium mt-0.5">
-                                            {billingMode === 'managed' ? 'Managed Routing' : 'BYOK'}
-                                        </div>
-                                    </div>
-                                    <div className="ac-soft-surface rounded-lg px-3 py-2">
-                                        <div className="text-[color:var(--ac-text-muted)]">Platform fee</div>
-                                        <div className="text-[color:var(--ac-text)] font-medium mt-0.5">
-                                            {platformFeeRate.toFixed(1)}%
-                                        </div>
-                                    </div>
-                                    <div className="ac-soft-surface rounded-lg px-3 py-2">
-                                        <div className="text-[color:var(--ac-text-muted)]">Readiness</div>
-                                        <div className={`font-medium mt-0.5 ${
-                                            readinessScore >= 75 ? 'text-emerald-400' : readinessScore >= 50 ? 'text-amber-300' : 'text-[color:var(--ac-danger)]'
-                                        }`}>
-                                            {readinessScore}%
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="rounded-xl border border-[color:var(--ac-border-soft)] p-4 bg-[color:var(--ac-surface)]">
-                                <h4 className="text-sm font-semibold text-[color:var(--ac-text)]">Billing Mode</h4>
-                                <p className="text-xs text-[color:var(--ac-text-dim)] mt-1">
-                                    BYOK for direct provider billing, or managed routing with platform controls and fee transparency.
-                                </p>
-                                <div className="mt-3 grid grid-cols-2 gap-2">
-                                    <button
-                                        onClick={() => setBillingMode('byok')}
-                                        className={`rounded-lg border px-3 py-2 text-xs font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ac-accent)] ${
-                                            billingMode === 'byok'
-                                                ? 'border-[color:var(--ac-accent)] bg-[color:var(--ac-surface-strong)] text-[color:var(--ac-text)] shadow-[0_8px_20px_-16px_color-mix(in_srgb,var(--ac-accent)_65%,transparent)]'
-                                                : 'border-[color:var(--ac-border-soft)] text-[color:var(--ac-text-dim)] hover:border-[color:var(--ac-border)] hover:text-[color:var(--ac-text)]'
-                                        }`}
-                                    >
-                                        BYOK
-                                    </button>
-                                    <button
-                                        onClick={() => setBillingMode('managed')}
-                                        className={`rounded-lg border px-3 py-2 text-xs font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ac-accent)] ${
-                                            billingMode === 'managed'
-                                                ? 'border-[color:var(--ac-accent)] bg-[color:var(--ac-surface-strong)] text-[color:var(--ac-text)] shadow-[0_8px_20px_-16px_color-mix(in_srgb,var(--ac-accent)_65%,transparent)]'
-                                                : 'border-[color:var(--ac-border-soft)] text-[color:var(--ac-text-dim)] hover:border-[color:var(--ac-border)] hover:text-[color:var(--ac-text)]'
-                                        }`}
-                                    >
-                                        Managed Routing
-                                    </button>
-                                </div>
-                                {billingMode === 'managed' && (
-                                    <div className="mt-3">
-                                        <label className="block text-xs text-[color:var(--ac-text-muted)] mb-1">
-                                            Monthly managed volume: ${monthlyPlatformSpend.toFixed(2)}
-                                        </label>
-                                        <input
-                                            type="range"
-                                            min={0}
-                                            max={5000}
-                                            step={25}
-                                            value={monthlyPlatformSpend}
-                                            onChange={(event) => setMonthlyPlatformSpend(Number.parseFloat(event.target.value))}
-                                            className="w-full"
-                                        />
-                                        <p className="text-[11px] text-[color:var(--ac-text-muted)] mt-1">
-                                            Estimated platform fee: ${managedPlatformFee.toFixed(2)} / month ({platformFeeRate.toFixed(1)}%)
-                                        </p>
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                {PLAN_TIERS.map((tier) => {
-                                    const isSelected = selectedPlan === tier.id;
-                                    return (
-                                        <button
-                                            key={tier.id}
-                                            onClick={() => setSelectedPlan(tier.id)}
-                                            className={`text-left rounded-xl border px-4 py-4 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ac-accent)] ${
-                                                isSelected
-                                                    ? 'border-[color:var(--ac-accent)] bg-[color:var(--ac-surface)] shadow-[0_10px_24px_-18px_color-mix(in_srgb,var(--ac-accent)_75%,transparent)]'
-                                                    : 'border-[color:var(--ac-border-soft)] bg-[color:var(--ac-surface)] hover:border-[color:var(--ac-border)] hover:-translate-y-[1px]'
-                                            }`}
-                                        >
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-sm font-semibold text-[color:var(--ac-text)]">{tier.name}</span>
-                                                {tier.badge && (
-                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-                                                        {tier.badge}
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <div className="mt-1 text-[color:var(--ac-text)] inline-flex items-baseline gap-1">
-                                                <span className="text-lg font-semibold">{tier.price}</span>
-                                                <span className="text-xs text-[color:var(--ac-text-muted)] ml-1">{tier.billing}</span>
-                                            </div>
-                                            <p className="mt-1 text-xs text-[color:var(--ac-text-dim)]">{tier.tagline}</p>
-                                            <ul className="mt-3 space-y-1.5">
-                                                {tier.features.map((feature) => (
-                                                    <li key={`${tier.id}-${feature}`} className="text-xs text-[color:var(--ac-text-dim)] flex items-start gap-1.5">
-                                                        <span className="text-emerald-400">•</span>
-                                                        <span>{feature}</span>
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                            <div className="mt-4">
-                                                <span className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
-                                                    tier.highlighted
-                                                        ? 'bg-[color:var(--ac-accent)] text-[#082236] shadow-[0_8px_18px_-14px_color-mix(in_srgb,var(--ac-accent)_80%,transparent)]'
-                                                        : 'border border-[color:var(--ac-border-soft)] text-[color:var(--ac-text-dim)] bg-[color:var(--ac-surface)]'
-                                                }`}>
-                                                    {tier.cta}
-                                                </span>
-                                            </div>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-
-                            <div className="rounded-xl border border-[color:var(--ac-border-soft)] p-4 bg-[color:var(--ac-surface)]">
-                                <h4 className="text-sm font-semibold text-[color:var(--ac-text)]">Market Cues Applied</h4>
-                                <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
-                                    <div className="ac-soft-surface rounded-lg px-3 py-2">
-                                        <div className="text-[color:var(--ac-text-muted)]">TypingMind cue</div>
-                                        <div className="text-[color:var(--ac-text-dim)] mt-1">One-time Pro Lifetime tier for immediate monetization.</div>
-                                    </div>
-                                    <div className="ac-soft-surface rounded-lg px-3 py-2">
-                                        <div className="text-[color:var(--ac-text-muted)]">Poe cue</div>
-                                        <div className="text-[color:var(--ac-text-dim)] mt-1">Subscription seat model for recurring collaboration revenue.</div>
-                                    </div>
-                                    <div className="ac-soft-surface rounded-lg px-3 py-2">
-                                        <div className="text-[color:var(--ac-text-muted)]">OpenRouter cue</div>
-                                        <div className="text-[color:var(--ac-text-dim)] mt-1">Managed orchestration fee with governance controls.</div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="rounded-xl border border-[color:var(--ac-border-soft)] p-4 bg-[color:var(--ac-surface)]">
-                                <h4 className="text-sm font-semibold text-[color:var(--ac-text)]">Current vs Desired State</h4>
-                                <div className="mt-2 space-y-2">
-                                    {readinessChecks.map((check) => (
-                                        <div
-                                            key={check.id}
-                                            className="ac-soft-surface rounded-lg px-3 py-2 flex items-center justify-between gap-2"
-                                        >
-                                            <div>
-                                                <div className="text-xs font-medium text-[color:var(--ac-text)]">{check.label}</div>
-                                                <div className="text-[11px] text-[color:var(--ac-text-muted)] mt-0.5">{check.detail}</div>
-                                            </div>
-                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
-                                                check.passed
-                                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-                                                    : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-                                            }`}>
-                                                {check.passed ? 'Ready' : 'Needs work'}
-                                            </span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div className="rounded-xl border border-[color:var(--ac-border-soft)] p-4 bg-[color:var(--ac-surface)]">
-                                <h4 className="text-sm font-semibold text-[color:var(--ac-text)]">Managed Routing Fee Preview</h4>
-                                <p className="text-xs text-[color:var(--ac-text-dim)] mt-1">
-                                    Example: ${monthlyPlatformSpend.toFixed(2)} routed through hosted orchestration x {platformFeeRate.toFixed(1)}% fee.
-                                </p>
-                                <div className="mt-2 ac-soft-surface rounded-lg px-3 py-2 text-xs text-[color:var(--ac-text-dim)]">
-                                    Estimated platform fee: ${managedPlatformFee.toFixed(2)} / month
-                                </div>
-                            </div>
-
-                            <div className="rounded-xl border border-[color:var(--ac-border-soft)] p-4 bg-[color:var(--ac-surface)]">
-                                <h4 className="text-sm font-semibold text-[color:var(--ac-text)]">Desktop Distribution Readiness</h4>
-                                <p className="text-xs text-[color:var(--ac-text-dim)] mt-1">
-                                    End users install and launch the desktop app directly. CLI is only for internal build/release steps.
-                                </p>
-                                <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
-                                    <div className="ac-soft-surface rounded-lg px-3 py-2">
-                                        <div className="text-[color:var(--ac-text-muted)]">Windows</div>
-                                        <div className="text-[color:var(--ac-text-dim)] mt-1">NSIS installer (.exe)</div>
-                                    </div>
-                                    <div className="ac-soft-surface rounded-lg px-3 py-2">
-                                        <div className="text-[color:var(--ac-text-muted)]">macOS</div>
-                                        <div className="text-[color:var(--ac-text-dim)] mt-1">DMG/ZIP desktop build</div>
-                                    </div>
-                                    <div className="ac-soft-surface rounded-lg px-3 py-2">
-                                        <div className="text-[color:var(--ac-text-muted)]">Linux</div>
-                                        <div className="text-[color:var(--ac-text-dim)] mt-1">AppImage and .deb</div>
-                                    </div>
-                                </div>
                             </div>
                         </div>
                     )}
