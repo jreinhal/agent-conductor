@@ -28,9 +28,13 @@ import {
 } from '@/lib/bounce-orchestrator';
 import {
     BounceEvent,
+    BounceConsensusMode,
+    ConsensusAnalysis,
     BounceStatus,
     SerializedBounceSession,
 } from '@/lib/bounce-types';
+
+const WAITING_AUTO_CONTINUE_SECONDS = 12;
 
 interface BounceControllerProps {
     /** Initial topic to debate (from "Pass Baton" click) */
@@ -39,12 +43,18 @@ interface BounceControllerProps {
     onComplete?: (finalAnswer: string) => void;
     /** Callback when bounce is cancelled */
     onCancel?: () => void;
+    /** Shared local file context to include in each round */
+    fileContext?: string;
+    /** Number of files currently included in debate context */
+    attachedFileCount?: number;
 }
 
 export function BounceController({
     initialTopic,
     onComplete,
     onCancel,
+    fileContext,
+    attachedFileCount = 0,
 }: BounceControllerProps) {
     const sessions = useSessions();
     const bounceState = useBounceState();
@@ -64,9 +74,28 @@ export function BounceController({
 
     const [topic, setTopic] = useState(initialTopic || '');
     const [showConfig, setShowConfig] = useState(false);
+    const [showMathDetails, setShowMathDetails] = useState(true);
     const [userInterjection, setUserInterjection] = useState('');
+    const [activeThinkers, setActiveThinkers] = useState<string[]>([]);
+    const [lastActivityAt, setLastActivityAt] = useState<number | null>(null);
+    const [clockNow, setClockNow] = useState<number>(0);
+    const [waitingSinceAt, setWaitingSinceAt] = useState<number | null>(null);
+    const [autoContinueEnabled, setAutoContinueEnabled] = useState<boolean>(true);
 
     const orchestratorRef = useRef<BounceOrchestrator | null>(null);
+    const autoContinuedForWaitAtRef = useRef<number | null>(null);
+    const fileContextRef = useRef<string>(fileContext || '');
+
+    useEffect(() => {
+        fileContextRef.current = fileContext || '';
+    }, [fileContext]);
+
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setClockNow(Date.now());
+        }, 1000);
+        return () => clearInterval(timer);
+    }, []);
 
     // Handle bounce events from orchestrator (defined before useEffect that uses it)
     const handleBounceEvent = useCallback((event: BounceEvent) => {
@@ -77,18 +106,26 @@ export function BounceController({
                     originalTopic: event.topic,
                     startedAt: Date.now(),
                 });
+                setActiveThinkers([]);
+                setLastActivityAt(Date.now());
+                setWaitingSinceAt(null);
                 break;
 
             case 'ROUND_STARTED':
                 updateBounceState({ currentRound: event.roundNumber });
+                setLastActivityAt(Date.now());
                 break;
 
             case 'PARTICIPANT_THINKING':
-                // Could show loading indicator for specific participant
+                setActiveThinkers((prev) => (
+                    prev.includes(event.sessionId) ? prev : [...prev, event.sessionId]
+                ));
+                setLastActivityAt(Date.now());
                 break;
 
             case 'PARTICIPANT_RESPONDED':
-                // Responses are tracked in orchestrator state
+                setActiveThinkers((prev) => prev.filter((sessionId) => sessionId !== event.response.participantSessionId));
+                setLastActivityAt(Date.now());
                 break;
 
             case 'ROUND_COMPLETE':
@@ -96,26 +133,41 @@ export function BounceController({
                 updateBounceState({
                     rounds: orchestratorRef.current?.getState().rounds ?? [event.round],
                 });
+                setActiveThinkers([]);
+                setLastActivityAt(Date.now());
+                setWaitingSinceAt(null);
                 break;
 
             case 'CONSENSUS_UPDATED':
                 updateBounceState({ consensus: event.consensus });
+                setLastActivityAt(Date.now());
                 break;
 
             case 'USER_INTERJECTION_REQUESTED':
                 updateBounceState({ status: 'waiting_user' });
+                setActiveThinkers([]);
+                setLastActivityAt(Date.now());
+                setWaitingSinceAt(Date.now());
                 break;
 
             case 'JUDGING_STARTED':
                 updateBounceState({ status: 'judging' });
+                setActiveThinkers([]);
+                setLastActivityAt(Date.now());
+                setWaitingSinceAt(null);
                 break;
 
             case 'BOUNCE_PAUSED':
                 updateBounceState({ status: 'paused' });
+                setActiveThinkers([]);
+                setLastActivityAt(Date.now());
+                setWaitingSinceAt(null);
                 break;
 
             case 'BOUNCE_RESUMED':
                 updateBounceState({ status: 'running' });
+                setLastActivityAt(Date.now());
+                setWaitingSinceAt(null);
                 break;
 
             case 'BOUNCE_COMPLETE':
@@ -125,6 +177,9 @@ export function BounceController({
                     consensus: event.consensus,
                     completedAt: Date.now(),
                 });
+                setActiveThinkers([]);
+                setLastActivityAt(Date.now());
+                setWaitingSinceAt(null);
                 onComplete?.(event.finalAnswer);
                 break;
 
@@ -133,10 +188,16 @@ export function BounceController({
                     status: 'error',
                     error: event.error,
                 });
+                setActiveThinkers([]);
+                setLastActivityAt(Date.now());
+                setWaitingSinceAt(null);
                 break;
 
             case 'BOUNCE_CANCELLED':
                 updateBounceState({ status: 'idle' });
+                setActiveThinkers([]);
+                setLastActivityAt(Date.now());
+                setWaitingSinceAt(null);
                 onCancel?.();
                 break;
 
@@ -150,7 +211,7 @@ export function BounceController({
     // Initialize orchestrator
     useEffect(() => {
         if (!orchestratorRef.current) {
-            orchestratorRef.current = createBounceOrchestrator();
+            orchestratorRef.current = createBounceOrchestrator('/api', () => fileContextRef.current);
 
             // Subscribe to events
             orchestratorRef.current.subscribe(handleBounceEvent);
@@ -220,12 +281,31 @@ export function BounceController({
             message: userInterjection,
         });
         setUserInterjection('');
+        setWaitingSinceAt(null);
     }, [userInterjection]);
 
     // Continue without interjection
     const handleContinue = useCallback(async () => {
+        setWaitingSinceAt(null);
         await orchestratorRef.current?.dispatch({ type: 'RESUME' });
     }, []);
+
+    useEffect(() => {
+        if (bounceState.status !== 'waiting_user') {
+            autoContinuedForWaitAtRef.current = null;
+            return;
+        }
+        if (!autoContinueEnabled) return;
+        if (userInterjection.trim().length > 0) return;
+        if (!waitingSinceAt) return;
+
+        const waitMs = clockNow - waitingSinceAt;
+        if (waitMs < WAITING_AUTO_CONTINUE_SECONDS * 1000) return;
+        if (autoContinuedForWaitAtRef.current === waitingSinceAt) return;
+
+        autoContinuedForWaitAtRef.current = waitingSinceAt;
+        void orchestratorRef.current?.dispatch({ type: 'RESUME' });
+    }, [bounceState.status, autoContinueEnabled, userInterjection, waitingSinceAt, clockNow]);
 
     // Toggle participant selection
     const toggleParticipant = useCallback((session: typeof sessions[0]) => {
@@ -254,6 +334,53 @@ export function BounceController({
 
     const isActive = bounceState.status !== 'idle' && bounceState.status !== 'complete' && bounceState.status !== 'error';
     const canStart = topic.trim().length > 0 && selectedParticipants.length >= 2 && !isActive;
+    const consensusMath = bounceState.consensus
+        ? deriveConsensusMath(bounceState.consensus, bounceConfig.consensusMode)
+        : null;
+    const sortedInfluence = bounceState.consensus
+        ? [...bounceState.consensus.influence.modelBreakdown].sort(
+            (a, b) => Math.abs(b.signedContribution) - Math.abs(a.signedContribution)
+        )
+        : [];
+    const secondsSinceActivity = lastActivityAt
+        ? Math.max(0, Math.floor((clockNow - lastActivityAt) / 1000))
+        : 0;
+    const waitingSecondsElapsed = waitingSinceAt
+        ? Math.max(0, Math.floor((clockNow - waitingSinceAt) / 1000))
+        : 0;
+    const autoContinueIn = Math.max(0, WAITING_AUTO_CONTINUE_SECONDS - waitingSecondsElapsed);
+    const isInterjectionDrafted = userInterjection.trim().length > 0;
+    const activeThinkerLabels = activeThinkers.map((sessionId) => {
+        const selected = selectedParticipants.find((participant) => participant.sessionId === sessionId);
+        if (selected?.title) return selected.title;
+        const session = sessions.find((entry) => entry.id === sessionId);
+        return session?.title || sessionId;
+    });
+    const activityTone: 'active' | 'waiting' | 'warning' | 'muted' =
+        bounceState.status === 'waiting_user'
+            ? 'waiting'
+            : bounceState.status === 'running' && secondsSinceActivity >= 45
+            ? 'warning'
+            : bounceState.status === 'running'
+            ? 'active'
+            : 'muted';
+    const activityMessage =
+        bounceState.status === 'waiting_user'
+            ? `Waiting for your input before Round ${Math.min(bounceState.currentRound + 1, bounceConfig.maxRounds)}. Use Submit or Skip to continue.`
+            : bounceState.status === 'paused'
+            ? 'Debate is paused.'
+            : bounceState.status === 'running' && activeThinkerLabels.length > 0
+            ? `${activeThinkerLabels.join(', ')} ${activeThinkerLabels.length > 1 ? 'are' : 'is'} actively debating.`
+            : bounceState.status === 'running' && secondsSinceActivity >= 45
+            ? `No new debate events for ${secondsSinceActivity}s.`
+            : bounceState.status === 'running'
+            ? 'Coordinating next turn...'
+            : null;
+    const freshnessDotColor =
+        secondsSinceActivity < 10 ? 'bg-green-400' :
+        secondsSinceActivity < 30 ? 'bg-amber-400' :
+        'bg-red-400';
+    const gateReason = getGateReason(bounceState.status, bounceState.currentRound, bounceConfig.maxRounds, bounceState.consensus, bounceState.error, secondsSinceActivity);
 
     return (
         <div className="panel-shell rounded-xl overflow-hidden">
@@ -287,6 +414,15 @@ export function BounceController({
                         className="ac-input px-3 py-2 text-sm resize-none"
                         rows={3}
                     />
+                </div>
+            )}
+
+            {/* Participant Selection */}
+            {attachedFileCount > 0 && (
+                <div className="px-4 py-3 border-b border-[color:var(--ac-border-soft)]">
+                    <div className="ac-soft-surface rounded-lg px-3 py-2 text-xs text-[color:var(--ac-text-muted)]">
+                        {attachedFileCount} attached file{attachedFileCount === 1 ? '' : 's'} will be included in each debate round and the final judge synthesis.
+                    </div>
                 </div>
             )}
 
@@ -623,12 +759,30 @@ export function BounceController({
                             Your turn to interject
                         </span>
                     </div>
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                        <p className="text-xs" style={{ color: 'color-mix(in srgb, var(--ac-accent-warm) 74%, #fff 26%)' }}>
+                            Debate is paused waiting for your input.
+                        </p>
+                        <button
+                            onClick={() => setAutoContinueEnabled((prev) => !prev)}
+                            className="control-chip px-2.5 py-1 rounded-md text-[11px] whitespace-nowrap"
+                        >
+                            {autoContinueEnabled ? 'Auto-continue on' : 'Auto-continue off'}
+                        </button>
+                    </div>
+                    <div className="mb-2 text-[11px] text-[color:var(--ac-text-muted)]">
+                        {autoContinueEnabled
+                            ? isInterjectionDrafted
+                                ? 'Auto-continue is paused while you are typing.'
+                                : `Continuing automatically in ${autoContinueIn}s unless you submit input.`
+                            : 'Auto-continue is disabled for this debate.'}
+                    </div>
                     <textarea
                         value={userInterjection}
                         onChange={(e) => setUserInterjection(e.target.value)}
                         placeholder="Add context, redirect the discussion, or ask a clarifying question..."
-                        className="ac-input px-3 py-2 text-sm resize-none mb-2"
-                        rows={2}
+                        className="ac-input px-3 py-2 text-sm leading-relaxed resize-y mb-2 min-h-[110px]"
+                        rows={4}
                     />
                     <div className="flex gap-2">
                         <button
@@ -636,19 +790,61 @@ export function BounceController({
                             disabled={!userInterjection.trim()}
                             className="ac-btn-primary flex-1 px-3 py-2 text-white rounded-lg text-sm font-medium transition-all disabled:opacity-40"
                         >
-                            Submit
+                            Submit & Continue
                         </button>
                         <button
                             onClick={handleContinue}
                             className="control-chip px-3 py-2 rounded-lg text-sm font-medium transition-colors"
                         >
-                            Skip
+                            Continue Without Input
                         </button>
                     </div>
                 </div>
             )}
 
-            {/* Progress */}
+            {/* Activity / Heartbeat / Gate-Reason (always visible when active) */}
+            {isActive && (
+                <div className="px-4 pt-4 pb-2 border-b border-[color:var(--ac-border-soft)]">
+                    {activityMessage ? (
+                        <div className={`px-3 py-2 rounded-lg text-xs border ${
+                            activityTone === 'active'
+                                ? 'text-cyan-300 border-cyan-500/40 bg-cyan-500/10'
+                                : activityTone === 'waiting'
+                                ? 'text-amber-300 border-amber-500/40 bg-amber-500/10'
+                                : activityTone === 'warning'
+                                ? 'text-[color:var(--ac-danger)] border-[color:var(--ac-danger)]/40 bg-[color:var(--ac-danger)]/10'
+                                : 'text-[color:var(--ac-text-muted)] border-[color:var(--ac-border-soft)] bg-[color:var(--ac-surface)]'
+                        }`}>
+                            <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                    {bounceState.status === 'running' && (
+                                        <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${freshnessDotColor}`} title={`Last activity ${secondsSinceActivity}s ago`} />
+                                    )}
+                                    <span>{activityMessage}</span>
+                                </div>
+                                <span className="font-mono text-[10px] opacity-80">
+                                    {secondsSinceActivity}s ago
+                                </span>
+                            </div>
+                            {gateReason && (
+                                <div className="mt-1.5 text-[11px] opacity-75">{gateReason}</div>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="px-3 py-2 rounded-lg text-xs border text-cyan-300 border-cyan-500/40 bg-cyan-500/10">
+                            <div className="flex items-center gap-2">
+                                <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${freshnessDotColor}`} />
+                                <span>Round {bounceState.currentRound || 1} is initializing...</span>
+                                <span className="ml-auto font-mono text-[10px] opacity-80">
+                                    {secondsSinceActivity}s ago
+                                </span>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Consensus Metrics (only after first consensus analysis) */}
             {isActive && bounceState.consensus && (
                 <div className="p-4 border-b border-[color:var(--ac-border-soft)]">
                     <div className="flex items-center justify-between mb-2">
@@ -676,6 +872,110 @@ export function BounceController({
                         <span>Quorum: {Math.round(bounceState.consensus.proposalConvergence.supportRatio * 100)}%</span>
                         <span>Stable: {bounceState.consensus.stableRounds}/{bounceConfig.minimumStableRounds}</span>
                     </div>
+
+                    <button
+                        onClick={() => setShowMathDetails((prev) => !prev)}
+                        className="mt-3 w-full control-chip px-3 py-2 rounded-lg text-xs flex items-center justify-between"
+                    >
+                        <span>Consensus Math Breakdown</span>
+                        {showMathDetails ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </button>
+
+                    {showMathDetails && consensusMath && (
+                        <div className="mt-2 rounded-lg ac-soft-surface p-3 space-y-3">
+                            <div className="text-[11px] font-mono text-[color:var(--ac-text-muted)]">
+                                score = 45% gate + 35% quorum + 20% semantic
+                            </div>
+
+                            <div className="h-2 rounded-full overflow-hidden ac-soft-surface flex">
+                                <div
+                                    className="h-full bg-cyan-500/90"
+                                    style={{ width: `${consensusMath.gateContribution * 100}%` }}
+                                    title={`Gate contribution ${Math.round(consensusMath.gateContribution * 100)}%`}
+                                />
+                                <div
+                                    className="h-full bg-indigo-500/90"
+                                    style={{ width: `${consensusMath.quorumContribution * 100}%` }}
+                                    title={`Quorum contribution ${Math.round(consensusMath.quorumContribution * 100)}%`}
+                                />
+                                <div
+                                    className="h-full bg-emerald-500/90"
+                                    style={{ width: `${consensusMath.semanticContribution * 100}%` }}
+                                    title={`Semantic contribution ${Math.round(consensusMath.semanticContribution * 100)}%`}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2 text-[11px] text-[color:var(--ac-text-muted)]">
+                                <span className="ac-badge px-2 py-1 rounded">
+                                    gate {Math.round(consensusMath.gateContribution * 100)}%
+                                </span>
+                                <span className="ac-badge px-2 py-1 rounded">
+                                    quorum {Math.round(consensusMath.quorumContribution * 100)}%
+                                </span>
+                                <span className="ac-badge px-2 py-1 rounded">
+                                    semantic {Math.round(consensusMath.semanticContribution * 100)}%
+                                </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 text-[11px] text-[color:var(--ac-text-muted)]">
+                                <span className="ac-badge px-2 py-1 rounded">
+                                    weighted support {Math.round(bounceState.consensus.influence.weightedSupportRatio * 100)}%
+                                    {' '}vs threshold {Math.round(bounceConfig.consensusThreshold * 100)}%
+                                </span>
+                                <span className="ac-badge px-2 py-1 rounded">
+                                    vote score {Math.round(consensusMath.normalizedVoteScore * 100)}%
+                                </span>
+                                <span className={`ac-badge px-2 py-1 rounded ${
+                                    bounceState.consensus.influence.unweightedGatePassed
+                                        ? 'text-emerald-400'
+                                        : 'text-[color:var(--ac-text-muted)]'
+                                }`}>
+                                    unweighted gate {bounceState.consensus.influence.unweightedGatePassed ? 'passed' : 'pending'}
+                                </span>
+                                <span className={`ac-badge px-2 py-1 rounded ${
+                                    bounceState.consensus.influence.weightedGatePassed
+                                        ? 'text-emerald-400'
+                                        : 'text-[color:var(--ac-text-muted)]'
+                                }`}>
+                                    weighted gate {bounceState.consensus.influence.weightedGatePassed ? 'passed' : 'pending'}
+                                </span>
+                            </div>
+
+                            {sortedInfluence.length > 0 && (
+                                <div className="space-y-2">
+                                    {sortedInfluence.map((entry) => {
+                                        const isSupport = entry.signedContribution >= 0;
+                                        const sharePct = Math.round(entry.effectiveShare * 100);
+                                        return (
+                                            <div
+                                                key={`influence-${entry.sessionId}`}
+                                                className="rounded-md border border-[color:var(--ac-border-soft)] px-2.5 py-2"
+                                            >
+                                                <div className="flex items-center justify-between text-[11px]">
+                                                    <span className="font-medium text-[color:var(--ac-text)] truncate pr-2">
+                                                        {entry.modelTitle}
+                                                    </span>
+                                                    <span className={isSupport ? 'text-emerald-400' : 'text-rose-400'}>
+                                                        contribution {formatSignedPercent(entry.signedContribution)}
+                                                    </span>
+                                                </div>
+                                                <div className="mt-1 text-[10px] text-[color:var(--ac-text-muted)]">
+                                                    {entry.userWeight.toFixed(0)} x {entry.reliabilityWeight.toFixed(2)} x {entry.confidenceModifier.toFixed(2)} = {entry.rawInfluence.toFixed(2)} raw
+                                                    {' '}to {sharePct}% share
+                                                </div>
+                                                <div className="mt-1.5 h-1.5 rounded-full overflow-hidden bg-[color:var(--ac-surface)]">
+                                                    <div
+                                                        className={`h-full ${isSupport ? 'bg-emerald-400' : 'bg-rose-400'}`}
+                                                        style={{ width: `${Math.max(3, entry.effectiveShare * 100)}%` }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -685,7 +985,8 @@ export function BounceController({
                     <button
                         onClick={handleStart}
                         disabled={!canStart}
-                        className="ac-btn-primary flex-1 flex items-center justify-center gap-2 px-4 py-2 text-white rounded-lg font-medium transition-all disabled:opacity-40"
+                        title={!canStart ? 'Select at least 2 models and enter a topic' : undefined}
+                        className="ac-btn-primary flex-1 flex items-center justify-center gap-2 px-4 py-2 text-white rounded-lg font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                         <Play className="w-4 h-4" />
                         Start Debate
@@ -694,7 +995,7 @@ export function BounceController({
                     <>
                         <button
                             onClick={handlePauseResume}
-                            className="control-chip flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors"
+                            className="ac-btn-primary flex-1 flex items-center justify-center gap-2 px-4 py-2 text-white rounded-lg font-medium transition-all"
                         >
                             {bounceState.status === 'paused' ? (
                                 <>
@@ -718,7 +1019,8 @@ export function BounceController({
                         </button>
                         <button
                             onClick={handleStop}
-                            className="ac-btn-danger flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors"
+                            title="Stop debate"
+                            className="ac-btn-danger flex items-center justify-center px-3 py-2 rounded-lg transition-colors"
                         >
                             <Square className="w-4 h-4" />
                         </button>
@@ -776,6 +1078,85 @@ function deriveReliabilityByModel(history: SerializedBounceSession[]): Map<strin
     }
 
     return result;
+}
+
+interface DerivedConsensusMath {
+    normalizedVoteScore: number;
+    gateAlignment: number;
+    gateContribution: number;
+    quorumContribution: number;
+    semanticScore: number;
+    semanticContribution: number;
+}
+
+function clamp01(value: number): number {
+    if (!Number.isFinite(value)) return 0;
+    return Math.max(0, Math.min(1, value));
+}
+
+function normalizeVoteScoreForMode(score: number, mode: BounceConsensusMode): number {
+    if (mode === 'weighted') {
+        // Weighted consensus scores can be in [-1, 1]; normalize for UI.
+        return clamp01((score + 1) / 2);
+    }
+    return clamp01(score);
+}
+
+function deriveConsensusMath(consensus: ConsensusAnalysis, mode: BounceConsensusMode): DerivedConsensusMath {
+    const normalizedVoteScore = normalizeVoteScoreForMode(consensus.voteScore, mode);
+    const gateAlignment = clamp01(
+        (consensus.influence.weightedSupportRatio * 0.55) +
+        (normalizedVoteScore * 0.45)
+    );
+    const gateContribution = clamp01(gateAlignment * 0.45);
+    const quorumContribution = clamp01(consensus.proposalConvergence.supportRatio * 0.35);
+    const semanticContribution = clamp01(consensus.score - gateContribution - quorumContribution);
+    const semanticScore = clamp01(semanticContribution / 0.20);
+
+    return {
+        normalizedVoteScore,
+        gateAlignment,
+        gateContribution,
+        quorumContribution,
+        semanticScore,
+        semanticContribution,
+    };
+}
+
+function formatSignedPercent(value: number): string {
+    const pct = Math.round(value * 100);
+    return `${pct >= 0 ? '+' : ''}${pct}%`;
+}
+
+function getGateReason(
+    status: BounceStatus,
+    currentRound: number,
+    maxRounds: number,
+    consensus: ConsensusAnalysis | null,
+    error: string | null,
+    secondsSinceActivity: number,
+): string | null {
+    switch (status) {
+        case 'waiting_user':
+            return 'Next round blocked: waiting for your interjection';
+        case 'paused':
+            return 'Debate paused by user';
+        case 'consensus':
+            return `Consensus reached at round ${currentRound} — proceeding to judge`;
+        case 'max_rounds':
+            return `Maximum rounds (${maxRounds}) reached — proceeding to judge`;
+        case 'judging':
+            return 'Judge is synthesizing final answer';
+        case 'running':
+            if (secondsSinceActivity > 30) {
+                return `Models are responding — last activity ${secondsSinceActivity}s ago`;
+            }
+            return null;
+        case 'error':
+            return error || 'An error occurred';
+        default:
+            return null;
+    }
 }
 
 // Status badge component

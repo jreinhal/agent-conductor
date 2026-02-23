@@ -24,7 +24,7 @@ import { RunTimelineStrip } from '@/components/RunTimelineStrip';
 import { MODELS } from '@/lib/models';
 import { PERSONAS } from '@/lib/personas';
 import { WORKFLOWS } from '@/lib/workflows';
-import { useAgentStore } from '@/lib/store';
+import { useAgentStore, useAutoBounce } from '@/lib/store';
 
 type ViewMode = 'grid' | 'freeform' | 'resizable';
 
@@ -59,6 +59,9 @@ export default function Page() {
     const addSession = useAgentStore((state) => state.addSession);
     const removeSession = useAgentStore((state) => state.removeSession);
     const clearSessions = useAgentStore((state) => state.clearSessions);
+    const autoBounce = useAutoBounce();
+    const setAutoBounceEnabled = useAgentStore((state) => state.setAutoBounceEnabled);
+    const setMinModelsForAutoBounce = useAgentStore((state) => state.setMinModelsForAutoBounce);
 
     const allWorkflows = useMemo(
         () => [...WORKFLOWS, ...workflow.customWorkflows],
@@ -230,6 +233,12 @@ export default function Page() {
     const handleBounceCancel = useCallback(() => {
         setBounceOpen(false);
         setBounceTopic(null);
+    }, []);
+
+    // Auto-bounce: start a debate directly from SmartInput when enough models are active
+    const handleAutoBounce = useCallback((topic: string) => {
+        setBounceTopic(topic);
+        setBounceOpen(true);
     }, []);
 
     // Clear all
@@ -541,6 +550,9 @@ export default function Page() {
                         onClearAll={handleClearAll}
                         isLoading={loadingSessionIds.size > 0}
                         sessionCount={sessions.length}
+                        onAutoBounce={handleAutoBounce}
+                        autoBounceEnabled={autoBounce.enabled}
+                        minModelsForAutoBounce={autoBounce.minModels}
                     />
                 </div>
             </div>
@@ -568,6 +580,10 @@ export default function Page() {
             <SettingsModal
                 isOpen={isSettingsOpen}
                 onClose={() => setSettingsOpen(false)}
+                autoBounceEnabled={autoBounce.enabled}
+                minModelsForAutoBounce={autoBounce.minModels}
+                onAutoBounceToggle={setAutoBounceEnabled}
+                onMinModelsChange={setMinModelsForAutoBounce}
             />
 
             {/* Protocol Board */}

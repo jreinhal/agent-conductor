@@ -19,6 +19,8 @@ import {
     INITIAL_BOUNCE_STATE,
     DEFAULT_BOUNCE_CONFIG,
     ConsensusAnalysis,
+    StructuredBounceResponseSchema,
+    StructuredBounceResponse,
 } from './bounce-types';
 
 import {
@@ -432,12 +434,20 @@ export class BounceOrchestrator {
 
             const durationMs = Date.now() - startTime;
 
-            // Parse the response
-            const stance = parseStanceFromResponse(content);
-            const keyPoints = extractKeyPoints(content);
-            const { agreements, disagreements } = extractAgreementsAndDisagreements(content);
+            // Try structured JSON parsing first, fall back to regex extraction
+            const structured = tryParseStructuredResponse(content);
 
-            const confidence = this.extractConfidence(content);
+            const stance = structured?.stance ?? parseStanceFromResponse(content);
+            const keyPoints = structured
+                ? [...structured.critiques, ...structured.concessions].filter(Boolean).slice(0, 5)
+                : extractKeyPoints(content);
+            const { agreements, disagreements } = structured
+                ? { agreements: structured.concessions.slice(0, 3), disagreements: structured.critiques.slice(0, 3) }
+                : extractAgreementsAndDisagreements(content);
+
+            const confidence = structured
+                ? structured.confidence / 100
+                : this.extractConfidence(content);
             const userWeight = this.clampUserWeight(participant.userWeight);
             const reliabilityWeight = this.clampReliabilityWeight(participant.reliabilityWeight ?? 1);
             const confidenceModifier = this.toConfidenceModifier(confidence);
@@ -448,7 +458,7 @@ export class BounceOrchestrator {
                 modelId: participant.modelId,
                 modelTitle: participant.title,
                 stance,
-                content,
+                content: structured ? `**Proposal:** ${structured.proposal}\n\n${structured.reasoning}` : content,
                 keyPoints,
                 agreements,
                 disagreements,
@@ -519,6 +529,18 @@ export class BounceOrchestrator {
         if (config.autoStopOnConsensus && reachedVote && reachedScore && reachedQuorum && reachedStability) {
             this.state.status = 'consensus';
             return true;
+        }
+
+        // Convergence delta check: if score delta < 0.02 for 2 consecutive rounds,
+        // the debate has stabilized and further rounds are unlikely to change the outcome.
+        if (this.state.rounds.length >= 3) {
+            const scores = this.state.rounds.map(r => r.consensusAtEnd.score);
+            const len = scores.length;
+            const delta1 = Math.abs(scores[len - 1] - scores[len - 2]);
+            const delta2 = Math.abs(scores[len - 2] - scores[len - 3]);
+            if (delta1 < 0.02 && delta2 < 0.02) {
+                return true;
+            }
         }
 
         // Strong recommendation to synthesize.
@@ -691,19 +713,52 @@ export class BounceOrchestrator {
 }
 
 // ============================================================================
+// Structured Response Parsing
+// ============================================================================
+
+/**
+ * Try to parse model output as structured JSON. Returns null on failure
+ * (graceful degradation to legacy regex extraction).
+ */
+export function tryParseStructuredResponse(content: string): StructuredBounceResponse | null {
+    try {
+        // Models may wrap JSON in markdown code fences or return raw JSON
+        const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+        // Fallback: find the last top-level JSON object containing "stance"
+        let rawJson: string | undefined = jsonMatch?.[1];
+        if (!rawJson) {
+            const braceBlocks = content.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g);
+            const stanceBlock = braceBlocks?.reverse().find(b => b.includes('"stance"'));
+            if (!stanceBlock) return null;
+            rawJson = stanceBlock;
+        }
+
+        const parsed = JSON.parse(rawJson);
+        const result = StructuredBounceResponseSchema.safeParse(parsed);
+        return result.success ? result.data : null;
+    } catch {
+        return null;
+    }
+}
+
+// ============================================================================
 // Factory Function
 // ============================================================================
 
 /**
  * Create a bounce orchestrator with the standard API fetch
  */
-export function createBounceOrchestrator(apiBaseUrl: string = '/api'): BounceOrchestrator {
+export function createBounceOrchestrator(
+    apiBaseUrl: string = '/api',
+    getFileContext?: () => string | undefined
+): BounceOrchestrator {
     const sendMessage = async (
         modelId: string,
         systemPrompt: string,
         userMessage: string,
         signal?: AbortSignal
     ): Promise<string> => {
+        const normalizedFileContext = getFileContext?.()?.trim();
         const response = await fetch(`${apiBaseUrl}/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -711,6 +766,7 @@ export function createBounceOrchestrator(apiBaseUrl: string = '/api'): BounceOrc
                 model: modelId,
                 system: systemPrompt,
                 messages: [{ role: 'user', content: userMessage }],
+                fileContext: normalizedFileContext || undefined,
             }),
             signal,
         });

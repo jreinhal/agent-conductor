@@ -24,8 +24,11 @@ interface SmartInputProps {
     onSelectWorkflow: (workflowId: string) => void;
     onSynthesize: () => void;
     onClearAll: () => void;
+    onAutoBounce?: (topic: string) => void;
     isLoading?: boolean;
     sessionCount?: number;
+    autoBounceEnabled?: boolean;
+    minModelsForAutoBounce?: number;
 }
 
 const COMMANDS: Suggestion[] = [
@@ -53,8 +56,11 @@ export function SmartInput({
     onSelectWorkflow,
     onSynthesize,
     onClearAll,
+    onAutoBounce,
     isLoading = false,
     sessionCount = 0,
+    autoBounceEnabled = false,
+    minModelsForAutoBounce = 2,
 }: SmartInputProps) {
     const [input, setInput] = useState('');
     const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -204,9 +210,16 @@ export function SmartInput({
             return;
         }
 
+        // Auto-bounce: if enabled and enough models are active, trigger debate instead of chat
+        if (autoBounceEnabled && sessionCount >= minModelsForAutoBounce && onAutoBounce) {
+            onAutoBounce(input);
+            setInput('');
+            return;
+        }
+
         onSubmit(input);
         setInput('');
-    }, [input, isLoading, onSubmit]);
+    }, [input, isLoading, onSubmit, autoBounceEnabled, sessionCount, minModelsForAutoBounce, onAutoBounce]);
 
     // Handle keyboard navigation
     const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {

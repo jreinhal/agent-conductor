@@ -1,8 +1,46 @@
 const { app, BrowserWindow, Tray, Menu, nativeImage, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { spawn } = require('child_process');
 const http = require('http');
+
+const formatLogArg = (arg) => {
+    if (arg instanceof Error) return arg.stack || arg.message;
+    if (typeof arg === 'string') return arg;
+    if (arg === undefined) return 'undefined';
+    if (arg === null) return 'null';
+    try {
+        return JSON.stringify(arg);
+    } catch {
+        return String(arg);
+    }
+};
+
+const appendFallbackLog = (level, args) => {
+    try {
+        const baseDir = app?.isReady?.() ? app.getPath('userData') : os.tmpdir();
+        const logPath = path.join(baseDir, 'agent-conductor-main.log');
+        const line = `[${new Date().toISOString()}] [${level}] ${args.map(formatLogArg).join(' ')}\n`;
+        fs.appendFileSync(logPath, line, 'utf8');
+    } catch {
+        // Swallow logging failures to avoid crashing main process.
+    }
+};
+
+const safeConsole = (method, ...args) => {
+    try {
+        console[method](...args);
+    } catch {
+        appendFallbackLog(method.toUpperCase(), args);
+    }
+};
+
+const log = {
+    info: (...args) => safeConsole('log', ...args),
+    warn: (...args) => safeConsole('warn', ...args),
+    error: (...args) => safeConsole('error', ...args),
+};
 
 // Conditionally load electron-store and electron-updater (may not be available in dev)
 let Store, autoUpdater;
@@ -13,16 +51,16 @@ try {
         : electronStoreModule?.default;
     if (typeof Store !== 'function') {
         Store = undefined;
-        console.warn('electron-store loaded but constructor export was not found; window state persistence disabled.');
+        log.warn('electron-store loaded but constructor export was not found; window state persistence disabled.');
     }
 } catch (e) {
-    console.log('electron-store unavailable; window state persistence disabled.');
+    log.info('electron-store unavailable; window state persistence disabled.');
 }
 
 try {
     autoUpdater = require('electron-updater').autoUpdater;
 } catch (e) {
-    console.log('electron-updater unavailable; auto-update disabled.');
+    log.info('electron-updater unavailable; auto-update disabled.');
 }
 
 let mainWindow;
@@ -42,7 +80,7 @@ if (Store) {
             }
         });
     } catch (error) {
-        console.warn('Failed to initialize electron-store; continuing without persisted window state.', error?.message || error);
+        log.warn('Failed to initialize electron-store; continuing without persisted window state.', error?.message || error);
         store = null;
     }
 }
@@ -108,7 +146,7 @@ const waitForServer = (port, maxAttempts = 30) => {
 
 const startServer = async () => {
     PORT = await findFreePort(3000);
-    console.log(`Starting local server on port ${PORT}...`);
+    log.info(`Starting local server on port ${PORT}...`);
 
     const standaloneRoot = path.join(__dirname, '../.next/standalone');
     const directServerPath = path.join(standaloneRoot, 'server.js');
@@ -137,7 +175,7 @@ const startServer = async () => {
     if (fs.existsSync(staticSource) && !fs.existsSync(staticTarget)) {
         fs.mkdirSync(path.dirname(staticTarget), { recursive: true });
         fs.cpSync(staticSource, staticTarget, { recursive: true });
-        console.log(`[Server]: copied static assets to ${staticTarget}`);
+        log.info(`[Server]: copied static assets to ${staticTarget}`);
     }
 
     serverProcess = spawn('node', [scriptPath], {
@@ -148,27 +186,33 @@ const startServer = async () => {
 
     // Capture server output for debugging
     serverProcess.stdout.on('data', (data) => {
-        console.log(`[Server]: ${data}`);
+        log.info(`[Server]: ${data}`);
+    });
+    serverProcess.stdout.on('error', (err) => {
+        log.error('[Server stdout pipe error]:', err);
     });
 
     serverProcess.stderr.on('data', (data) => {
-        console.error(`[Server Error]: ${data}`);
+        log.error(`[Server Error]: ${data}`);
+    });
+    serverProcess.stderr.on('error', (err) => {
+        log.error('[Server stderr pipe error]:', err);
     });
 
     serverProcess.on('error', (err) => {
-        console.error('Failed to start server:', err);
+        log.error('Failed to start server:', err);
     });
 
     serverProcess.on('close', (code) => {
-        console.log(`Server process exited with code ${code}`);
+        log.info(`Server process exited with code ${code}`);
     });
 
     // Wait for server to be ready
     try {
         await waitForServer(PORT);
-        console.log('Server is ready!');
+        log.info('Server is ready!');
     } catch (err) {
-        console.error('Server failed to become ready:', err);
+        log.error('Server failed to become ready:', err);
     }
 };
 
@@ -301,7 +345,7 @@ const createWindow = () => {
 
     // Handle load errors
     mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
-        console.error(`Failed to load: ${errorDescription} (${errorCode})`);
+        log.error(`Failed to load: ${errorDescription} (${errorCode})`);
         // Retry after a short delay
         setTimeout(() => {
             mainWindow.loadURL(`http://localhost:${PORT}`);
@@ -329,27 +373,27 @@ const setupAutoUpdater = () => {
     autoUpdater.autoInstallOnAppQuit = true;
 
     autoUpdater.on('checking-for-update', () => {
-        console.log('Checking for updates...');
+        log.info('Checking for updates...');
     });
 
     autoUpdater.on('update-available', (info) => {
-        console.log('Update available:', info.version);
+        log.info('Update available:', info.version);
     });
 
     autoUpdater.on('update-not-available', () => {
-        console.log('No updates available');
+        log.info('No updates available');
     });
 
     autoUpdater.on('error', (err) => {
-        console.error('Auto-updater error:', err);
+        log.error('Auto-updater error:', err);
     });
 
     autoUpdater.on('download-progress', (progress) => {
-        console.log(`Download progress: ${progress.percent.toFixed(1)}%`);
+        log.info(`Download progress: ${progress.percent.toFixed(1)}%`);
     });
 
     autoUpdater.on('update-downloaded', (info) => {
-        console.log('Update downloaded:', info.version);
+        log.info('Update downloaded:', info.version);
         // Notify user through the main window
         if (mainWindow) {
             mainWindow.webContents.send('update-downloaded', info.version);
