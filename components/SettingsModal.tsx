@@ -91,6 +91,10 @@ type SettingsTab = 'providers' | 'appearance' | 'shortcuts';
 interface SettingsModalProps {
     isOpen: boolean;
     onClose: () => void;
+    autoBounceEnabled?: boolean;
+    minModelsForAutoBounce?: number;
+    onAutoBounceToggle?: (enabled: boolean) => void;
+    onMinModelsChange?: (min: number) => void;
 }
 
 function readStoredConnections(): Record<string, boolean> {
@@ -115,7 +119,14 @@ function readStoredTheme(): Theme {
     return 'dark';
 }
 
-export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
+export function SettingsModal({
+    isOpen,
+    onClose,
+    autoBounceEnabled = true,
+    minModelsForAutoBounce = 2,
+    onAutoBounceToggle,
+    onMinModelsChange,
+}: SettingsModalProps) {
     const [connections, setConnections] = useState<Record<string, boolean>>(() => readStoredConnections());
     const [pendingSignIns, setPendingSignIns] = useState<Record<string, boolean>>({});
     const [theme, setTheme] = useState<Theme>(() => readStoredTheme());
@@ -509,6 +520,45 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                             Secondary
                                         </button>
                                     </div>
+                                </div>
+                            </div>
+
+                            {/* Debate Behavior */}
+                            <div>
+                                <h3 className="text-sm font-medium text-[color:var(--ac-text)] mb-3">Debate Behavior</h3>
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="text-sm text-[color:var(--ac-text)]">Auto-bounce</p>
+                                            <p className="text-xs text-[color:var(--ac-text-dim)]">
+                                                Automatically start a debate when enough models are active
+                                            </p>
+                                        </div>
+                                        <button
+                                            onClick={() => onAutoBounceToggle?.(!autoBounceEnabled)}
+                                            className={`relative w-11 h-6 rounded-full transition-colors ${
+                                                autoBounceEnabled ? 'bg-[color:var(--ac-accent)]' : 'bg-[color:var(--ac-border)]'
+                                            }`}
+                                        >
+                                            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                                                autoBounceEnabled ? 'translate-x-5' : ''
+                                            }`} />
+                                        </button>
+                                    </div>
+                                    {autoBounceEnabled && (
+                                        <div className="flex items-center justify-between">
+                                            <p className="text-sm text-[color:var(--ac-text-dim)]">Minimum models</p>
+                                            <select
+                                                value={minModelsForAutoBounce}
+                                                onChange={(e) => onMinModelsChange?.(Number(e.target.value))}
+                                                className="ac-soft-surface border border-[color:var(--ac-border)] rounded-lg px-2 py-1 text-sm text-[color:var(--ac-text)]"
+                                            >
+                                                {[2, 3, 4, 5].map(n => (
+                                                    <option key={n} value={n}>{n}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
