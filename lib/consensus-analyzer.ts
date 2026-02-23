@@ -264,6 +264,8 @@ const DEFAULT_OPTIONS: Required<ConsensusAnalysisOptions> = {
 };
 
 const MAX_MODEL_INFLUENCE_SHARE = 0.4;
+/** Maximum gap between top two proposal clusters to qualify as a near-tie */
+const NEAR_TIE_THRESHOLD = 0.15;
 const DEFAULT_USER_WEIGHT = 3;
 const DEFAULT_RELIABILITY_WEIGHT = 1;
 const MIN_CONFIDENCE_MODIFIER = 0.55;
@@ -454,7 +456,7 @@ function extractProposalConvergence(responses: BounceResponse[]): {
     if (clusters.length >= 2) {
         const second = clusters[1];
         const secondRatio = second.members.length / responses.length;
-        if (topRatio - secondRatio <= 0.15) {
+        if (topRatio - secondRatio <= NEAR_TIE_THRESHOLD) {
             runnerUp = {
                 proposal: second.leader,
                 supportRatio: secondRatio,

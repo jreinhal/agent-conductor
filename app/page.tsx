@@ -612,61 +612,61 @@ export default function Page() {
                 onClose={() => setTraceOpen(false)}
             />
 
-            {/* Bounce/Debate Slide-over Panel */}
-            <div
-                className={`fixed inset-y-0 right-0 z-50 flex transition-transform duration-300 ease-out ${
-                    isBounceOpen ? 'translate-x-0' : 'translate-x-full'
-                }`}
-                style={{ width: 'min(72rem, 85vw)' }}
-            >
-                {/* Backdrop */}
-                {isBounceOpen && (
+            {/* Bounce/Debate Slide-over Panel — conditionally mounted to ensure cleanup on close */}
+            {isBounceOpen && (
+                <>
+                    {/* Backdrop */}
                     <div
-                        className="fixed inset-0 -z-10 bg-black/40 backdrop-blur-sm transition-opacity"
+                        className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
                         onClick={handleBounceCancel}
                         onKeyDown={(e) => { if (e.key === 'Escape') handleBounceCancel(); }}
                         role="button"
                         tabIndex={-1}
                         aria-label="Close debate panel"
                     />
-                )}
 
-                {/* Panel content */}
-                <div className="flex-1 flex flex-col bg-[color:var(--ac-bg)] border-l border-[color:var(--ac-border)] shadow-2xl overflow-hidden">
-                    {/* Panel header */}
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-[color:var(--ac-border-soft)]">
-                        <div className="flex items-center gap-2">
-                            <Zap className="w-4 h-4 text-[color:var(--ac-accent)]" />
-                            <span className="font-semibold text-sm text-[color:var(--ac-text)]">Multi-Model Debate</span>
-                        </div>
-                        <button
-                            onClick={handleBounceCancel}
-                            className="control-chip p-1.5 rounded-md"
-                        >
-                            <X className="w-4 h-4" />
-                        </button>
-                    </div>
-
-                    {/* Scrollable grid */}
-                    <div className="flex-1 overflow-y-auto p-4">
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                            {/* Controller */}
-                            <div className="lg:col-span-1">
-                                <BounceController
-                                    initialTopic={bounceTopic || ''}
-                                    onComplete={handleBounceComplete}
-                                    onCancel={handleBounceCancel}
-                                />
+                    {/* Slide-over panel */}
+                    <div
+                        className="fixed inset-y-0 right-0 z-50 flex ac-slide-panel-enter"
+                        style={{ width: 'min(72rem, 85vw)' }}
+                    >
+                        <div className="flex-1 flex flex-col bg-[color:var(--ac-bg)] border-l border-[color:var(--ac-border)] shadow-2xl overflow-hidden">
+                            {/* Panel header */}
+                            <div className="flex items-center justify-between px-4 py-3 border-b border-[color:var(--ac-border-soft)]">
+                                <div className="flex items-center gap-2">
+                                    <Zap className="w-4 h-4 text-[color:var(--ac-accent)]" />
+                                    <span className="font-semibold text-sm text-[color:var(--ac-text)]">Multi-Model Debate</span>
+                                </div>
+                                <button
+                                    onClick={handleBounceCancel}
+                                    className="control-chip p-1.5 rounded-md"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
                             </div>
 
-                            {/* Debate Progress Panel */}
-                            <div className="lg:col-span-1">
-                                <BouncePanel maxHeight="calc(100vh - 8rem)" />
+                            {/* Scrollable grid */}
+                            <div className="flex-1 overflow-y-auto p-4">
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                    {/* Controller */}
+                                    <div className="lg:col-span-1">
+                                        <BounceController
+                                            initialTopic={bounceTopic || ''}
+                                            onComplete={handleBounceComplete}
+                                            onCancel={handleBounceCancel}
+                                        />
+                                    </div>
+
+                                    {/* Debate Progress Panel */}
+                                    <div className="lg:col-span-1">
+                                        <BouncePanel maxHeight="calc(100vh - 8rem)" />
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
+                </>
+            )}
         </div>
     );
 }
