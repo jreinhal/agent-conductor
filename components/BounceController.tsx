@@ -802,11 +802,11 @@ export function BounceController({
                 </div>
             )}
 
-            {/* Progress */}
-            {isActive && bounceState.consensus && (
-                <div className="p-4 border-b border-[color:var(--ac-border-soft)]">
-                    {activityMessage && (
-                        <div className={`mb-3 px-3 py-2 rounded-lg text-xs border ${
+            {/* Activity / Heartbeat / Gate-Reason (always visible when active) */}
+            {isActive && (
+                <div className="px-4 pt-4 pb-2 border-b border-[color:var(--ac-border-soft)]">
+                    {activityMessage ? (
+                        <div className={`px-3 py-2 rounded-lg text-xs border ${
                             activityTone === 'active'
                                 ? 'text-cyan-300 border-cyan-500/40 bg-cyan-500/10'
                                 : activityTone === 'waiting'
@@ -830,8 +830,23 @@ export function BounceController({
                                 <div className="mt-1.5 text-[11px] opacity-75">{gateReason}</div>
                             )}
                         </div>
+                    ) : (
+                        <div className="px-3 py-2 rounded-lg text-xs border text-cyan-300 border-cyan-500/40 bg-cyan-500/10">
+                            <div className="flex items-center gap-2">
+                                <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${freshnessDotColor}`} />
+                                <span>Round {bounceState.currentRound || 1} is initializing...</span>
+                                <span className="ml-auto font-mono text-[10px] opacity-80">
+                                    {secondsSinceActivity}s ago
+                                </span>
+                            </div>
+                        </div>
                     )}
+                </div>
+            )}
 
+            {/* Consensus Metrics (only after first consensus analysis) */}
+            {isActive && bounceState.consensus && (
+                <div className="p-4 border-b border-[color:var(--ac-border-soft)]">
                     <div className="flex items-center justify-between mb-2">
                         <span className="text-sm text-[color:var(--ac-text-dim)]">
                             Round {bounceState.currentRound} of {bounceConfig.maxRounds}
