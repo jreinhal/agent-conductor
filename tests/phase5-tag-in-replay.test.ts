@@ -101,6 +101,57 @@ function makeRound(roundNumber: number): BounceRound {
 // ---------------------------------------------------------------------------
 
 describe('BounceOrchestrator — specialist tag-in', () => {
+    it('does not inject a tagged participant into the current sequential round', async () => {
+        const sendMessage = vi.fn(async (modelId: string) => {
+            // Keep a short but deterministic delay so we can tag in mid-round.
+            const delayMs = modelId === 'gpt-5.2' ? 60 : 80;
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+            return (
+                '```json\n' +
+                JSON.stringify({
+                    thought: 'test',
+                    proposal: 'test proposal',
+                    confidence: 80,
+                    reasoning: 'test reasoning',
+                    critiques: [],
+                    concessions: [],
+                    stance: 'agree',
+                }) +
+                '\n```'
+            );
+        });
+        const orchestrator = new BounceOrchestrator(sendMessage);
+
+        const startPromise = orchestrator.dispatch({
+            type: 'START',
+            topic: 'Test topic',
+            participants: [makeParticipant('a', 'gpt-5.2'), makeParticipant('b', 'claude-opus-4.6')],
+            config: {
+                mode: 'sequential',
+                maxRounds: 1,
+                consensusThreshold: 0.01,
+                minimumStableRounds: 1,
+                resolutionQuorum: 0.01,
+                allowUserInterjection: false,
+            },
+        });
+
+        // Tag in while the first round is still being processed.
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        await orchestrator.dispatch({
+            type: 'ADD_PARTICIPANT',
+            participant: makeParticipant('specialist-c', 'gemini-2.5-pro'),
+        });
+
+        await startPromise;
+
+        const state = orchestrator.getState();
+        expect(state.rounds).toHaveLength(1);
+        const roundOneIds = state.rounds[0].responses.map((response) => response.participantSessionId);
+        expect(roundOneIds).toEqual(['a', 'b']);
+        expect(roundOneIds).not.toContain('specialist-c');
+    });
+
     it('emits PARTICIPANT_TAGGED_IN when adding a participant during running state', async () => {
         const sendMessage = makeMockSendMessage();
         const orchestrator = new BounceOrchestrator(sendMessage);

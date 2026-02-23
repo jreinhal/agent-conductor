@@ -37,6 +37,13 @@ export function DebateReplay({ session, onClose }: DebateReplayProps) {
 
     const isAtEnd = currentRound >= totalRounds - 1 && currentResponse >= totalResponses - 1;
 
+    // Reset playback position when replay session changes.
+    useEffect(() => {
+        setCurrentRound(0);
+        setCurrentResponse(0);
+        setIsPlaying(false);
+    }, [session.id]);
+
     const advance = useCallback(() => {
         if (currentResponse < totalResponses - 1) {
             setCurrentResponse((prev) => prev + 1);

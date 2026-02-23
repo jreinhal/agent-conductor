@@ -271,15 +271,18 @@ export class BounceOrchestrator {
 
             this.emit({ type: 'ROUND_STARTED', roundNumber: this.state.currentRound });
 
+            // Snapshot participants for this round so mid-round tag-ins are applied
+            // on the next round boundary (deterministic sequential behavior).
+            const roundParticipants = [...config.participants];
             const roundResponses: BounceResponse[] = [];
 
             if (config.mode === 'sequential') {
                 // Sequential: each participant responds in order
-                for (let i = 0; i < config.participants.length; i++) {
+                for (let i = 0; i < roundParticipants.length; i++) {
                     if (this.state.status !== 'running') break;
 
                     this.state.currentParticipantIndex = i;
-                    const participant = config.participants[i];
+                    const participant = roundParticipants[i];
 
                     const response = await this.getParticipantResponse(
                         participant,
@@ -291,7 +294,7 @@ export class BounceOrchestrator {
                         this.emit({ type: 'PARTICIPANT_RESPONDED', response });
 
                         // Pause between responses if configured
-                        if (config.pauseBetweenResponses > 0 && i < config.participants.length - 1) {
+                        if (config.pauseBetweenResponses > 0 && i < roundParticipants.length - 1) {
                             const pauseMs = this.getAdaptivePauseBetweenResponses(response.durationMs);
                             if (pauseMs > 0) {
                                 await this.sleep(pauseMs);
@@ -301,7 +304,7 @@ export class BounceOrchestrator {
                 }
             } else {
                 // Parallel: all participants respond simultaneously
-                const promises = config.participants.map(participant =>
+                const promises = roundParticipants.map(participant =>
                     this.getParticipantResponse(participant, [])
                 );
 
