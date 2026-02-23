@@ -87,10 +87,10 @@
     }
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.45",
-    "@ai-sdk/google": "^3.0.29",
+    "@ai-sdk/anthropic": "^3.0.46",
+    "@ai-sdk/google": "^3.0.30",
     "@ai-sdk/openai": "^3.0.30",
-    "@ai-sdk/react": "^3.0.93",
+    "@ai-sdk/react": "^3.0.99",
     "ai": "^6.0.91",
     "chokidar": "^5.0.0",
     "electron-store": "^10.0.1",
