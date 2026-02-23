@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Message } from 'ai';
+import { Zap, X } from 'lucide-react';
 
 // Components
 import { Canvas, DraggablePanel } from '@/components/Canvas';
@@ -611,35 +612,60 @@ export default function Page() {
                 onClose={() => setTraceOpen(false)}
             />
 
-            {/* Bounce/Debate Overlay */}
+            {/* Bounce/Debate Slide-over Panel — conditionally mounted to ensure cleanup on close */}
             {isBounceOpen && (
-                <div className="fixed inset-0 z-50 flex items-start justify-center pt-14 px-4 bg-black/60 backdrop-blur-md overflow-y-auto">
-                    <div className="w-full max-w-4xl mb-8 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        {/* Controller */}
-                        <div className="lg:col-span-1">
-                            <BounceController
-                                initialTopic={bounceTopic || ''}
-                                onComplete={handleBounceComplete}
-                                onCancel={handleBounceCancel}
-                            />
-                        </div>
+                <>
+                    {/* Backdrop */}
+                    <div
+                        className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+                        onClick={handleBounceCancel}
+                        onKeyDown={(e) => { if (e.key === 'Escape') handleBounceCancel(); }}
+                        role="button"
+                        tabIndex={-1}
+                        aria-label="Close debate panel"
+                    />
 
-                        {/* Debate Progress Panel */}
-                        <div className="lg:col-span-1">
-                            <BouncePanel maxHeight="600px" />
+                    {/* Slide-over panel */}
+                    <div
+                        className="fixed inset-y-0 right-0 z-50 flex ac-slide-panel-enter"
+                        style={{ width: 'min(72rem, 85vw)' }}
+                    >
+                        <div className="flex-1 flex flex-col bg-[color:var(--ac-bg)] border-l border-[color:var(--ac-border)] shadow-2xl overflow-hidden">
+                            {/* Panel header */}
+                            <div className="flex items-center justify-between px-4 py-3 border-b border-[color:var(--ac-border-soft)]">
+                                <div className="flex items-center gap-2">
+                                    <Zap className="w-4 h-4 text-[color:var(--ac-accent)]" />
+                                    <span className="font-semibold text-sm text-[color:var(--ac-text)]">Multi-Model Debate</span>
+                                </div>
+                                <button
+                                    onClick={handleBounceCancel}
+                                    className="control-chip p-1.5 rounded-md"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
+
+                            {/* Scrollable grid */}
+                            <div className="flex-1 overflow-y-auto p-4">
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                    {/* Controller */}
+                                    <div className="lg:col-span-1">
+                                        <BounceController
+                                            initialTopic={bounceTopic || ''}
+                                            onComplete={handleBounceComplete}
+                                            onCancel={handleBounceCancel}
+                                        />
+                                    </div>
+
+                                    {/* Debate Progress Panel */}
+                                    <div className="lg:col-span-1">
+                                        <BouncePanel maxHeight="calc(100vh - 8rem)" />
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
-
-                    {/* Close button */}
-                    <button
-                        onClick={handleBounceCancel}
-                        className="control-chip fixed top-4 right-4 p-2"
-                    >
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
-                </div>
+                </>
             )}
         </div>
     );
