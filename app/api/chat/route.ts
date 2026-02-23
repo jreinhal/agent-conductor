@@ -20,8 +20,20 @@ interface ChatRequestBody {
     messages?: UIMessageLike[];
     model?: string;
     system?: string;
+    fileContext?: string;
     sessionId?: string;
     requestId?: string;
+}
+
+function buildEffectiveSystemPrompt(system: string | undefined, fileContext: string | undefined): string | undefined {
+    const normalizedSystem = typeof system === 'string' ? system.trim() : '';
+    const normalizedFileContext = typeof fileContext === 'string' ? fileContext.trim() : '';
+
+    if (!normalizedSystem && !normalizedFileContext) return undefined;
+    if (!normalizedFileContext) return normalizedSystem || undefined;
+    if (!normalizedSystem) return normalizedFileContext;
+
+    return `${normalizedSystem}\n\n${normalizedFileContext}`;
 }
 
 function extractLatestUserPreview(messages: UIMessageLike[]): string {
@@ -255,6 +267,7 @@ export async function POST(req: Request) {
         const requestedModel = body.model || 'gpt-5.3-codex';
         const requestId = typeof body.requestId === 'string' ? body.requestId.trim() : '';
         const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : '';
+        const effectiveSystemPrompt = buildEffectiveSystemPrompt(body.system, body.fileContext);
 
         if (messages.length === 0) {
             return createErrorStreamResponse('No messages were provided.');
@@ -263,7 +276,7 @@ export async function POST(req: Request) {
         const decision = decideModelRoute({
             requestedModel,
             messages,
-            system: body.system,
+            system: effectiveSystemPrompt,
         });
 
         const candidates = [decision.selectedModel, ...decision.fallbackModels];
@@ -288,7 +301,7 @@ export async function POST(req: Request) {
 
             try {
                 text = await runWithTimeout(
-                    runLocalCliChat(candidate, messages, body.system),
+                    runLocalCliChat(candidate, messages, effectiveSystemPrompt),
                     ROUTED_MODEL_TIMEOUT_MS,
                     candidate
                 );

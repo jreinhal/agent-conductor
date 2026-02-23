@@ -93,11 +93,6 @@ export default function Page() {
         [attachedFiles]
     );
 
-    const withFileContext = useCallback((message: string) => {
-        if (!fileContextPack) return message;
-        return `${message}\n\n${fileContextPack}`;
-    }, [fileContextPack]);
-
     // Global keyboard shortcut for command palette
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -135,11 +130,10 @@ export default function Page() {
 
     // Broadcast message to all panels
     const broadcastMessage = useCallback((content: string) => {
-        const enrichedContent = withFileContext(content);
         panelRefs.current.forEach((ref) => {
-            ref.sendMessage(enrichedContent);
+            ref.sendMessage(content);
         });
-    }, [withFileContext]);
+    }, []);
 
     // Keep global loading state in sync with panel loading updates.
     const handleLoadingChange = useCallback((sessionId: string, isLoading: boolean) => {
@@ -274,9 +268,9 @@ export default function Page() {
 
     // Auto-bounce: start a debate directly from SmartInput when enough models are active
     const handleAutoBounce = useCallback((topic: string) => {
-        setBounceTopic(withFileContext(topic));
+        setBounceTopic(topic);
         setBounceOpen(true);
-    }, [withFileContext]);
+    }, []);
 
     // Clear all
     const handleClearAll = useCallback(() => {
@@ -533,6 +527,7 @@ export default function Page() {
                                         ref={(ref) => registerPanelRef(session.id, ref)}
                                         session={session}
                                         initialMessages={sessionMessages.get(session.id) || []}
+                                        fileContext={fileContextPack}
                                         onClose={() => {
                                             removeSession(session.id);
                                             clearUsage(session.id);
@@ -561,6 +556,7 @@ export default function Page() {
                                         ref={(ref) => registerPanelRef(session.id, ref)}
                                         session={session}
                                         initialMessages={sessionMessages.get(session.id) || []}
+                                        fileContext={fileContextPack}
                                         onClose={() => {
                                             removeSession(session.id);
                                             clearUsage(session.id);
@@ -594,6 +590,7 @@ export default function Page() {
                                             ref={(ref) => registerPanelRef(session.id, ref)}
                                             session={session}
                                             initialMessages={sessionMessages.get(session.id) || []}
+                                            fileContext={fileContextPack}
                                             onClose={() => {
                                                 removeSession(session.id);
                                                 clearUsage(session.id);
@@ -785,6 +782,8 @@ export default function Page() {
                                     <div className="lg:col-span-1">
                                         <BounceController
                                             initialTopic={bounceTopic || ''}
+                                            fileContext={fileContextPack}
+                                            attachedFileCount={includedFileCount}
                                             onComplete={handleBounceComplete}
                                             onCancel={handleBounceCancel}
                                         />

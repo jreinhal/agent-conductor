@@ -9,6 +9,7 @@ import { useSystemPrompt } from '@/lib/useSystemPrompt';
 interface ChatPanelProps {
     session: Session;
     initialMessages?: Message[];
+    fileContext?: string;
     onClose?: () => void;
     onMessagesUpdate?: (messages: Message[]) => void;
     onLoadingChange?: (sessionId: string, isLoading: boolean) => void;
@@ -93,6 +94,7 @@ function extractMessageText(message: Message): string {
 export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
     session,
     initialMessages = [],
+    fileContext,
     onClose,
     onMessagesUpdate,
     onLoadingChange,
@@ -109,7 +111,8 @@ export const ChatPanel = forwardRef<ChatPanelRef, ChatPanelProps>(({
         model: session.modelId,
         system: systemPrompt,
         config: session.config,
-    }), [session.modelId, session.config, systemPrompt]);
+        fileContext: fileContext?.trim() || undefined,
+    }), [session.modelId, session.config, systemPrompt, fileContext]);
 
     const chatHook = useChat({
         id: session.id,
