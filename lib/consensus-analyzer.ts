@@ -21,33 +21,83 @@ import { detectConsensus } from './coordination/consensus';
 import type { ProtocolEntry, ProtocolRules, Stance } from './protocol/types';
 
 // ============================================================================
-// Similarity Calculation (Enhanced Jaccard)
+// Similarity Calculation (TF-IDF Cosine)
 // ============================================================================
 
+/** Stop words excluded from TF-IDF scoring */
+const STOP_WORDS = new Set([
+    'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+    'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+    'should', 'may', 'might', 'shall', 'can', 'need', 'dare', 'ought',
+    'used', 'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from',
+    'as', 'into', 'through', 'during', 'before', 'after', 'above', 'below',
+    'between', 'out', 'off', 'over', 'under', 'again', 'further', 'then',
+    'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'both',
+    'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor',
+    'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 'just',
+    'because', 'but', 'and', 'or', 'if', 'while', 'about', 'this', 'that',
+    'these', 'those', 'it', 'its', 'what', 'which', 'who', 'whom',
+]);
+
+/** Tokenize text into filtered word array */
+function tokenize(text: string): string[] {
+    return text
+        .toLowerCase()
+        .replace(/[^\w\s]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length >= 2 && !STOP_WORDS.has(w));
+}
+
+/** Build term frequency map */
+function termFrequency(tokens: string[]): Map<string, number> {
+    const tf = new Map<string, number>();
+    for (const token of tokens) {
+        tf.set(token, (tf.get(token) || 0) + 1);
+    }
+    // Normalize by document length
+    const len = tokens.length || 1;
+    for (const [term, count] of tf) {
+        tf.set(term, count / len);
+    }
+    return tf;
+}
+
 /**
- * Calculate semantic similarity between two texts using enhanced word overlap
+ * Calculate TF-IDF cosine similarity between two texts.
+ * Uses the two documents as the corpus for IDF calculation.
  */
 function calculateSimilarity(text1: string, text2: string): number {
     if (!text1 || !text2) return 0;
 
-    // Normalize and tokenize
-    const normalize = (text: string) =>
-        text
-            .toLowerCase()
-            .replace(/[^\w\s]/g, ' ')
-            .split(/\s+/)
-            .filter(w => w.length > 3); // Skip short words
+    const tokens1 = tokenize(text1);
+    const tokens2 = tokenize(text2);
+    if (tokens1.length === 0 || tokens2.length === 0) return 0;
 
-    const words1 = new Set(normalize(text1));
-    const words2 = new Set(normalize(text2));
+    const tf1 = termFrequency(tokens1);
+    const tf2 = termFrequency(tokens2);
 
-    if (words1.size === 0 || words2.size === 0) return 0;
+    // Build IDF across the two documents
+    const allTerms = new Set([...tf1.keys(), ...tf2.keys()]);
+    const idf = new Map<string, number>();
+    for (const term of allTerms) {
+        const docCount = (tf1.has(term) ? 1 : 0) + (tf2.has(term) ? 1 : 0);
+        idf.set(term, Math.log(2 / docCount) + 1); // smoothed IDF
+    }
 
-    // Jaccard similarity
-    const intersection = [...words1].filter(w => words2.has(w));
-    const union = new Set([...words1, ...words2]);
+    // Build TF-IDF vectors and compute cosine similarity
+    let dot = 0;
+    let mag1 = 0;
+    let mag2 = 0;
+    for (const term of allTerms) {
+        const tfidf1 = (tf1.get(term) || 0) * (idf.get(term) || 0);
+        const tfidf2 = (tf2.get(term) || 0) * (idf.get(term) || 0);
+        dot += tfidf1 * tfidf2;
+        mag1 += tfidf1 * tfidf1;
+        mag2 += tfidf2 * tfidf2;
+    }
 
-    return intersection.length / union.size;
+    const denom = Math.sqrt(mag1) * Math.sqrt(mag2);
+    return denom > 0 ? dot / denom : 0;
 }
 
 /**
@@ -179,11 +229,31 @@ function findDisputedPoints(responses: BounceResponse[]): string[] {
     return [...uniqueDisagreements].slice(0, 5);
 }
 
+/**
+ * Compute cosine similarity between two embedding vectors.
+ */
+export function cosineSimilarity(a: number[], b: number[]): number {
+    if (a.length !== b.length || a.length === 0) return 0;
+    let dot = 0;
+    let magA = 0;
+    let magB = 0;
+    for (let i = 0; i < a.length; i++) {
+        dot += a[i] * b[i];
+        magA += a[i] * a[i];
+        magB += b[i] * b[i];
+    }
+    const denom = Math.sqrt(magA) * Math.sqrt(magB);
+    return denom > 0 ? dot / denom : 0;
+}
+
 export interface ConsensusAnalysisOptions {
     consensusMode?: BounceConsensusMode;
     consensusThreshold?: number;
     resolutionQuorum?: number;
     minimumStableRounds?: number;
+    /** Pre-computed embeddings keyed by participant session ID. When provided,
+     *  embedding cosine similarity replaces TF-IDF for content comparison. */
+    embeddings?: Map<string, number[]>;
 }
 
 const DEFAULT_OPTIONS: Required<ConsensusAnalysisOptions> = {
@@ -635,15 +705,25 @@ export function analyzeConsensus(
         };
     }
 
-    // Calculate pairwise content similarity
+    // Calculate pairwise content similarity.
+    // When embeddings are provided, use cosine similarity on vectors.
+    // Otherwise fall back to TF-IDF + bigram hybrid.
     let totalSimilarity = 0;
     let pairs = 0;
 
     for (let i = 0; i < responses.length; i++) {
         for (let j = i + 1; j < responses.length; j++) {
-            const wordSimilarity = calculateSimilarity(responses[i].content, responses[j].content);
-            const bigramSimilarity = calculateBigramSimilarity(responses[i].content, responses[j].content);
-            totalSimilarity += (wordSimilarity * 0.6 + bigramSimilarity * 0.4);
+            const embA = resolvedOptions.embeddings?.get(responses[i].participantSessionId);
+            const embB = resolvedOptions.embeddings?.get(responses[j].participantSessionId);
+
+            if (embA && embB) {
+                // Normalize from [-1, 1] to [0, 1] to match TF-IDF range
+                totalSimilarity += Math.max(0, cosineSimilarity(embA, embB));
+            } else {
+                const wordSimilarity = calculateSimilarity(responses[i].content, responses[j].content);
+                const bigramSimilarity = calculateBigramSimilarity(responses[i].content, responses[j].content);
+                totalSimilarity += (wordSimilarity * 0.6 + bigramSimilarity * 0.4);
+            }
             pairs++;
         }
     }
