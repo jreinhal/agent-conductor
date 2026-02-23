@@ -44,6 +44,16 @@ export function DebateReplay({ session, onClose }: DebateReplayProps) {
         setIsPlaying(false);
     }, [session.id]);
 
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                onClose();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [onClose]);
+
     const advance = useCallback(() => {
         if (currentResponse < totalResponses - 1) {
             setCurrentResponse((prev) => prev + 1);
