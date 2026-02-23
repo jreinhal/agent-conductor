@@ -584,9 +584,17 @@ export class BounceOrchestrator {
             return configuredJudge;
         }
 
-        // Try to find a non-participant model from the available model pool
+        // Try to find a non-participant model from a provider already in use
+        // (if participants use that provider, the API key must be configured)
+        const participantProviders = new Set(
+            this.state.config.participants
+                .map(p => MODELS.find(m => m.id === p.modelId)?.providerId)
+                .filter(Boolean)
+        );
         const nonParticipantModel = MODELS.find(
-            m => m.id !== 'auto-router' && !participantModelIds.has(m.id)
+            m => m.id !== 'auto-router'
+                && !participantModelIds.has(m.id)
+                && participantProviders.has(m.providerId)
         );
         if (nonParticipantModel) {
             return nonParticipantModel.id;
