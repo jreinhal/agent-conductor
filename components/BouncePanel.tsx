@@ -14,6 +14,9 @@ import {
     AlertCircle,
     CheckCircle2,
     Sparkles,
+    ChevronDown,
+    ChevronUp,
+    Info,
 } from 'lucide-react';
 import { useBounceState } from '@/lib/store';
 import {
@@ -282,6 +285,7 @@ function FinalAnswerDisplay({
     answer: string;
     consensus: ConsensusAnalysis | null;
 }) {
+    const [showWhyScore, setShowWhyScore] = useState(false);
     return (
         <div style={{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--ac-accent) 10%, transparent), transparent)' }}>
             {/* Header */}
@@ -303,6 +307,42 @@ function FinalAnswerDisplay({
                     {answer}
                 </div>
             </div>
+
+            {/* Dual-option presentation when proposals are near-tied */}
+            {consensus?.proposalConvergence.runnerUp && (
+                <div className="px-4 pb-2">
+                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                        <div className="flex items-center gap-1.5 text-xs font-medium text-amber-400 mb-2">
+                            <AlertCircle className="w-3.5 h-3.5" />
+                            Near-Tie: Two Competing Proposals
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <div className="rounded-md ac-soft-surface p-2.5">
+                                <div className="flex items-center justify-between mb-1">
+                                    <span className="text-[10px] font-medium text-emerald-400">Option A</span>
+                                    <span className="text-[10px] text-[color:var(--ac-text-muted)]">
+                                        {Math.round(consensus.proposalConvergence.supportRatio * 100)}% support
+                                    </span>
+                                </div>
+                                <p className="text-[11px] text-[color:var(--ac-text-dim)] leading-relaxed">
+                                    {consensus.proposalConvergence.leadingProposal.slice(0, 150)}{consensus.proposalConvergence.leadingProposal.length > 150 ? '...' : ''}
+                                </p>
+                            </div>
+                            <div className="rounded-md ac-soft-surface p-2.5">
+                                <div className="flex items-center justify-between mb-1">
+                                    <span className="text-[10px] font-medium text-cyan-400">Option B</span>
+                                    <span className="text-[10px] text-[color:var(--ac-text-muted)]">
+                                        {Math.round(consensus.proposalConvergence.runnerUp.supportRatio * 100)}% support
+                                    </span>
+                                </div>
+                                <p className="text-[11px] text-[color:var(--ac-text-dim)] leading-relaxed">
+                                    {consensus.proposalConvergence.runnerUp.proposal.slice(0, 150)}{consensus.proposalConvergence.runnerUp.proposal.length > 150 ? '...' : ''}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Consensus summary */}
             {consensus && (
@@ -343,6 +383,98 @@ function FinalAnswerDisplay({
                             </div>
                         )}
                     </div>
+
+                    {/* "Why this score?" expandable card */}
+                    <button
+                        onClick={() => setShowWhyScore(prev => !prev)}
+                        className="mt-3 w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs
+                            ac-soft-surface hover:brightness-110 transition-all"
+                    >
+                        <span className="flex items-center gap-1.5 text-[color:var(--ac-text-dim)]">
+                            <Info className="w-3.5 h-3.5" />
+                            Why this score?
+                        </span>
+                        {showWhyScore ? <ChevronUp className="w-3.5 h-3.5 text-[color:var(--ac-text-muted)]" /> : <ChevronDown className="w-3.5 h-3.5 text-[color:var(--ac-text-muted)]" />}
+                    </button>
+
+                    {showWhyScore && (
+                        <div className="mt-2 ac-soft-surface rounded-lg p-3 space-y-3 text-xs text-[color:var(--ac-text-dim)]">
+                            {/* Score formula breakdown */}
+                            <div>
+                                <div className="font-medium text-[color:var(--ac-text-muted)] mb-1">Score Composition</div>
+                                <div className="font-mono text-[10px]">
+                                    score = 45% gate alignment + 35% proposal quorum + 20% semantic similarity
+                                </div>
+                                <div className="mt-1.5 grid grid-cols-3 gap-1.5">
+                                    <span className="ac-badge px-2 py-1 rounded text-center">
+                                        gate {Math.round(consensus.influence.weightedSupportRatio * 100)}%
+                                    </span>
+                                    <span className="ac-badge px-2 py-1 rounded text-center">
+                                        quorum {Math.round(consensus.proposalConvergence.supportRatio * 100)}%
+                                    </span>
+                                    <span className="ac-badge px-2 py-1 rounded text-center">
+                                        outcome: {consensus.consensusOutcome}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Leading proposal */}
+                            {consensus.proposalConvergence.leadingProposal && (
+                                <div>
+                                    <div className="font-medium text-[color:var(--ac-text-muted)] mb-1">Leading Proposal</div>
+                                    <div className="italic opacity-80">
+                                        &ldquo;{consensus.proposalConvergence.leadingProposal.slice(0, 200)}{consensus.proposalConvergence.leadingProposal.length > 200 ? '...' : ''}&rdquo;
+                                    </div>
+                                    <div className="mt-1 text-[10px]">
+                                        {consensus.proposalConvergence.supporters.length} supporter{consensus.proposalConvergence.supporters.length !== 1 ? 's' : ''}
+                                        {consensus.proposalConvergence.dissenters.length > 0 && ` · ${consensus.proposalConvergence.dissenters.length} dissenter${consensus.proposalConvergence.dissenters.length !== 1 ? 's' : ''}`}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Per-model influence */}
+                            {consensus.influence.modelBreakdown.length > 0 && (
+                                <div>
+                                    <div className="font-medium text-[color:var(--ac-text-muted)] mb-1">Model Contributions</div>
+                                    <div className="space-y-1.5">
+                                        {[...consensus.influence.modelBreakdown]
+                                            .sort((a, b) => Math.abs(b.signedContribution) - Math.abs(a.signedContribution))
+                                            .map(entry => {
+                                                const isPositive = entry.signedContribution >= 0;
+                                                const pct = Math.round(entry.effectiveShare * 100);
+                                                return (
+                                                    <div key={entry.sessionId} className="flex items-center gap-2">
+                                                        <span className="truncate w-24 flex-shrink-0">{entry.modelTitle}</span>
+                                                        <div className="flex-1 h-1.5 rounded-full ac-soft-surface overflow-hidden">
+                                                            <div
+                                                                className={`h-full ${isPositive ? 'bg-emerald-400' : 'bg-rose-400'}`}
+                                                                style={{ width: `${Math.max(3, pct)}%` }}
+                                                            />
+                                                        </div>
+                                                        <span className={`w-10 text-right text-[10px] ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                            {isPositive ? '+' : ''}{Math.round(entry.signedContribution * 100)}%
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Trend + recommendation */}
+                            <div className="flex items-center gap-3 text-[10px]">
+                                <span className="ac-badge px-2 py-1 rounded">
+                                    trend: {consensus.trend}
+                                </span>
+                                <span className="ac-badge px-2 py-1 rounded">
+                                    recommendation: {consensus.recommendation}
+                                </span>
+                                <span className="ac-badge px-2 py-1 rounded">
+                                    stable rounds: {consensus.stableRounds}
+                                </span>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

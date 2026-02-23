@@ -289,6 +289,12 @@ export interface ConsensusAnalysis {
         supportRatio: number;
         supporters: string[];
         dissenters: string[];
+        /** Runner-up proposal when two clusters have near-equal support (within 15%) */
+        runnerUp?: {
+            proposal: string;
+            supportRatio: number;
+            supporters: string[];
+        };
     };
 
     /** User-weighted consensus diagnostics and explainability metadata. */

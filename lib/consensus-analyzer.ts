@@ -447,11 +447,28 @@ function extractProposalConvergence(responses: BounceResponse[]): {
         .map((r) => r.participantSessionId)
         .filter((id) => !supporterSet.has(id));
 
+    const topRatio = top.members.length / responses.length;
+
+    // Include runner-up when two clusters have near-equal support (within 15%)
+    let runnerUp: { proposal: string; supportRatio: number; supporters: string[] } | undefined;
+    if (clusters.length >= 2) {
+        const second = clusters[1];
+        const secondRatio = second.members.length / responses.length;
+        if (topRatio - secondRatio <= 0.15) {
+            runnerUp = {
+                proposal: second.leader,
+                supportRatio: secondRatio,
+                supporters: second.members,
+            };
+        }
+    }
+
     return {
         leadingProposal: top.leader,
-        supportRatio: top.members.length / responses.length,
+        supportRatio: topRatio,
         supporters: top.members,
         dissenters,
+        runnerUp,
     };
 }
 

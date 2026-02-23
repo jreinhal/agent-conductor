@@ -946,6 +946,15 @@ export function BounceController({
                                     {sortedInfluence.map((entry) => {
                                         const isSupport = entry.signedContribution >= 0;
                                         const sharePct = Math.round(entry.effectiveShare * 100);
+                                        const stance = bounceState.consensus?.stanceBreakdown[entry.sessionId];
+                                        const stanceLabel = stance
+                                            ? stance.replace(/_/g, ' ')
+                                            : '';
+                                        const stanceColor = entry.stanceValue >= 0.5
+                                            ? 'text-emerald-400'
+                                            : entry.stanceValue >= 0
+                                            ? 'text-yellow-400'
+                                            : 'text-rose-400';
                                         return (
                                             <div
                                                 key={`influence-${entry.sessionId}`}
@@ -955,18 +964,29 @@ export function BounceController({
                                                     <span className="font-medium text-[color:var(--ac-text)] truncate pr-2">
                                                         {entry.modelTitle}
                                                     </span>
-                                                    <span className={isSupport ? 'text-emerald-400' : 'text-rose-400'}>
-                                                        contribution {formatSignedPercent(entry.signedContribution)}
-                                                    </span>
+                                                    <div className="flex items-center gap-2">
+                                                        {stanceLabel && (
+                                                            <span className={`text-[10px] ${stanceColor}`}>
+                                                                {stanceLabel}
+                                                            </span>
+                                                        )}
+                                                        <span className={isSupport ? 'text-emerald-400' : 'text-rose-400'}>
+                                                            {formatSignedPercent(entry.signedContribution)}
+                                                        </span>
+                                                    </div>
                                                 </div>
                                                 <div className="mt-1 text-[10px] text-[color:var(--ac-text-muted)]">
-                                                    {entry.userWeight.toFixed(0)} x {entry.reliabilityWeight.toFixed(2)} x {entry.confidenceModifier.toFixed(2)} = {entry.rawInfluence.toFixed(2)} raw
-                                                    {' '}to {sharePct}% share
+                                                    weight {entry.userWeight.toFixed(0)} · reliability {entry.reliabilityWeight.toFixed(2)} · confidence {entry.confidenceModifier.toFixed(2)} → {sharePct}% share
                                                 </div>
-                                                <div className="mt-1.5 h-1.5 rounded-full overflow-hidden bg-[color:var(--ac-surface)]">
+                                                {/* Split bar: support portion in green, opposition in red */}
+                                                <div className="mt-1.5 h-2 rounded-full overflow-hidden bg-[color:var(--ac-surface)] flex">
                                                     <div
-                                                        className={`h-full ${isSupport ? 'bg-emerald-400' : 'bg-rose-400'}`}
-                                                        style={{ width: `${Math.max(3, entry.effectiveShare * 100)}%` }}
+                                                        className="h-full bg-emerald-400/80 transition-all duration-500"
+                                                        style={{ width: `${isSupport ? Math.max(3, sharePct) : 0}%` }}
+                                                    />
+                                                    <div
+                                                        className="h-full bg-rose-400/80 transition-all duration-500"
+                                                        style={{ width: `${!isSupport ? Math.max(3, sharePct) : 0}%` }}
                                                     />
                                                 </div>
                                             </div>
