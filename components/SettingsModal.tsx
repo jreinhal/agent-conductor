@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { exportAsJSON, exportAsMarkdown } from '@/lib/export-utils';
+import { useAgentStore } from '@/lib/store';
 
 interface ProviderConfig {
     id: string;
@@ -86,7 +88,7 @@ const STORAGE_KEY = 'agent_conductor_connections';
 const THEME_KEY = 'agent_conductor_theme';
 
 type Theme = 'light' | 'dark' | 'system';
-type SettingsTab = 'providers' | 'appearance' | 'shortcuts';
+type SettingsTab = 'providers' | 'appearance' | 'data' | 'shortcuts';
 
 interface SettingsModalProps {
     isOpen: boolean;
@@ -131,6 +133,19 @@ export function SettingsModal({
     const [pendingSignIns, setPendingSignIns] = useState<Record<string, boolean>>({});
     const [theme, setTheme] = useState<Theme>(() => readStoredTheme());
     const [activeTab, setActiveTab] = useState<SettingsTab>('providers');
+    const [liveStatus, setLiveStatus] = useState<Record<string, boolean> | null>(null);
+
+    const sessions = useAgentStore((state) => state.sessions);
+    const bounceHistory = useAgentStore((state) => state.debate.bounceHistory);
+
+    // Fetch live provider status when providers tab is active
+    useEffect(() => {
+        if (!isOpen || activeTab !== 'providers') return;
+        fetch('/api/provider-status')
+            .then((r) => r.json())
+            .then((data) => setLiveStatus(data))
+            .catch(() => setLiveStatus(null));
+    }, [isOpen, activeTab]);
 
     // Apply theme
     useEffect(() => {
@@ -205,6 +220,15 @@ export function SettingsModal({
             icon: (
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+                </svg>
+            )
+        },
+        {
+            id: 'data',
+            label: 'Data',
+            icon: (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
                 </svg>
             )
         },
@@ -313,6 +337,7 @@ export function SettingsModal({
                             {PROVIDERS.map(provider => {
                                 const isConnected = connections[provider.id];
                                 const isPending = !!pendingSignIns[provider.id];
+                                const hasApiKey = liveStatus?.[provider.id] ?? false;
 
                                 return (
                                     <div
@@ -352,6 +377,16 @@ export function SettingsModal({
                                                         ) : (
                                                             <span className="text-xs text-[color:var(--ac-text-muted)] font-mono">
                                                                 {provider.envVar}
+                                                            </span>
+                                                        )}
+                                                        {liveStatus && (
+                                                            <span className={`flex items-center gap-1 text-[10px] ${
+                                                                hasApiKey ? 'text-emerald-500' : 'text-[color:var(--ac-text-muted)]'
+                                                            }`}>
+                                                                <span className={`w-1 h-1 rounded-full ${
+                                                                    hasApiKey ? 'bg-emerald-500' : 'bg-[color:var(--ac-text-muted)]'
+                                                                }`} />
+                                                                {hasApiKey ? 'API key set' : 'No API key'}
                                                             </span>
                                                         )}
                                                     </div>
@@ -560,6 +595,70 @@ export function SettingsModal({
                                         </div>
                                     )}
                                 </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'data' && (
+                        <div className="p-6 space-y-6">
+                            {/* Session summary */}
+                            <div>
+                                <h3 className="text-sm font-medium text-[color:var(--ac-text)] mb-3">Storage</h3>
+                                <div className="grid grid-cols-3 gap-3">
+                                    <div className="p-3 rounded-xl ac-soft-surface text-center">
+                                        <p className="text-lg font-semibold text-[color:var(--ac-text)]">{sessions.length}</p>
+                                        <p className="text-[10px] text-[color:var(--ac-text-dim)]">Sessions</p>
+                                    </div>
+                                    <div className="p-3 rounded-xl ac-soft-surface text-center">
+                                        <p className="text-lg font-semibold text-[color:var(--ac-text)]">
+                                            {sessions.reduce((sum, s) => sum + s.messages.length, 0)}
+                                        </p>
+                                        <p className="text-[10px] text-[color:var(--ac-text-dim)]">Messages</p>
+                                    </div>
+                                    <div className="p-3 rounded-xl ac-soft-surface text-center">
+                                        <p className="text-lg font-semibold text-[color:var(--ac-text)]">{bounceHistory.length}</p>
+                                        <p className="text-[10px] text-[color:var(--ac-text-dim)]">Debates</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Export */}
+                            <div>
+                                <h3 className="text-sm font-medium text-[color:var(--ac-text)] mb-3">Export</h3>
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => exportAsJSON(sessions, bounceHistory)}
+                                        className="flex-1 control-chip px-4 py-2.5 text-xs font-medium flex items-center justify-center gap-2"
+                                        disabled={sessions.length === 0 && bounceHistory.length === 0}
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                        Export JSON
+                                    </button>
+                                    <button
+                                        onClick={() => exportAsMarkdown(sessions, bounceHistory)}
+                                        className="flex-1 control-chip px-4 py-2.5 text-xs font-medium flex items-center justify-center gap-2"
+                                        disabled={sessions.length === 0 && bounceHistory.length === 0}
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                        Export Markdown
+                                    </button>
+                                </div>
+                                <p className="text-[10px] text-[color:var(--ac-text-muted)] mt-2">
+                                    Sessions and debates are auto-saved to localStorage. Exports download a file to your device.
+                                </p>
+                            </div>
+
+                            {/* Persistence info */}
+                            <div>
+                                <h3 className="text-sm font-medium text-[color:var(--ac-text)] mb-2">Persistence</h3>
+                                <p className="text-xs text-[color:var(--ac-text-dim)]">
+                                    Sessions, messages, debates, and settings are automatically persisted to browser localStorage.
+                                    Data survives page reloads. In Electron desktop mode, data is stored in SQLite for higher capacity.
+                                </p>
                             </div>
                         </div>
                     )}

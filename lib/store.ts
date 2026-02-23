@@ -364,13 +364,15 @@ export const useAgentStore = create<AgentConductorState>()(
             name: 'agent-conductor-storage',
             storage: createJSONStorage(() => localStorage),
             partialize: (state) => ({
-                // Only persist these fields
+                // Persist these fields across reloads
+                sessions: state.sessions,
                 sharedContext: state.sharedContext,
                 sharedKnowledge: state.sharedKnowledge,
                 workflow: {
                     customWorkflows: state.workflow.customWorkflows,
                 },
                 debate: {
+                    bounceHistory: state.debate.bounceHistory,
                     autoBounceEnabled: state.debate.autoBounceEnabled,
                     minModelsForAutoBounce: state.debate.minModelsForAutoBounce,
                 },
