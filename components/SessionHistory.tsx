@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Clock, FileJson, FileText, Play, Trash2, X } from 'lucide-react';
 import { useAgentStore } from '@/lib/store';
 import { exportAsJSON, exportAsMarkdown } from '@/lib/export-utils';
@@ -21,6 +21,17 @@ export function SessionHistory({ isOpen, onClose, onReplayDebate }: SessionHisto
 
     const [confirmClear, setConfirmClear] = useState(false);
 
+    useEffect(() => {
+        if (!isOpen) return;
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                onClose();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen, onClose]);
+
     if (!isOpen) return null;
 
     const totalMessages = sessions.reduce(
@@ -34,10 +45,7 @@ export function SessionHistory({ isOpen, onClose, onReplayDebate }: SessionHisto
             <div
                 className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
                 onClick={onClose}
-                onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
-                role="button"
-                tabIndex={-1}
-                aria-label="Close session history"
+                aria-hidden="true"
             />
 
             {/* Slide-over panel from left */}
@@ -203,8 +211,9 @@ export function SessionHistory({ isOpen, onClose, onReplayDebate }: SessionHisto
                                                 {onReplayDebate && (
                                                     <button
                                                         onClick={() => onReplayDebate(debate)}
-                                                        className="opacity-0 group-hover:opacity-100 p-1 text-[color:var(--ac-text-muted)] hover:text-[color:var(--ac-accent)] transition-all"
+                                                        className="p-1 opacity-80 group-hover:opacity-100 group-focus-within:opacity-100 text-[color:var(--ac-text-muted)] hover:text-[color:var(--ac-accent)] transition-all"
                                                         title="Replay debate"
+                                                        aria-label={`Replay debate: ${debate.topic}`}
                                                     >
                                                         <Play className="w-3 h-3" />
                                                     </button>

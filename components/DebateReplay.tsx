@@ -37,6 +37,23 @@ export function DebateReplay({ session, onClose }: DebateReplayProps) {
 
     const isAtEnd = currentRound >= totalRounds - 1 && currentResponse >= totalResponses - 1;
 
+    // Reset playback position when replay session changes.
+    useEffect(() => {
+        setCurrentRound(0);
+        setCurrentResponse(0);
+        setIsPlaying(false);
+    }, [session.id]);
+
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                onClose();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [onClose]);
+
     const advance = useCallback(() => {
         if (currentResponse < totalResponses - 1) {
             setCurrentResponse((prev) => prev + 1);

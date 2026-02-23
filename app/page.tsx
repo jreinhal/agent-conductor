@@ -647,10 +647,7 @@ export default function Page() {
                     <div
                         className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
                         onClick={() => setReplaySession(null)}
-                        onKeyDown={(e) => { if (e.key === 'Escape') setReplaySession(null); }}
-                        role="button"
-                        tabIndex={-1}
-                        aria-label="Close debate replay"
+                        aria-hidden="true"
                     />
                     <div
                         className="fixed inset-y-0 right-0 z-50 flex ac-slide-panel-enter"
