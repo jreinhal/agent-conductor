@@ -9,6 +9,8 @@ import { NextRequest, NextResponse } from 'next/server';
  * Body: { texts: string[] }
  * Returns: { embeddings: number[][], model: string } or { error: string }
  */
+const MAX_EMBEDDING_BATCH_SIZE = 20;
+
 export async function POST(req: NextRequest) {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
@@ -21,9 +23,9 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const texts: string[] = body.texts;
 
-    if (!Array.isArray(texts) || texts.length === 0 || texts.length > 20) {
+    if (!Array.isArray(texts) || texts.length === 0 || texts.length > MAX_EMBEDDING_BATCH_SIZE) {
         return NextResponse.json(
-            { error: 'texts must be an array of 1-20 strings' },
+            { error: `texts must be an array of 1-${MAX_EMBEDDING_BATCH_SIZE} strings` },
             { status: 400 }
         );
     }
