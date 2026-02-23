@@ -1,16 +1,18 @@
 'use client';
 
 import { useState } from 'react';
-import { Clock, Download, FileJson, FileText, Trash2, X } from 'lucide-react';
+import { Clock, FileJson, FileText, Play, Trash2, X } from 'lucide-react';
 import { useAgentStore } from '@/lib/store';
 import { exportAsJSON, exportAsMarkdown } from '@/lib/export-utils';
+import type { SerializedBounceSession } from '@/lib/bounce-types';
 
 interface SessionHistoryProps {
     isOpen: boolean;
     onClose: () => void;
+    onReplayDebate?: (session: SerializedBounceSession) => void;
 }
 
-export function SessionHistory({ isOpen, onClose }: SessionHistoryProps) {
+export function SessionHistory({ isOpen, onClose, onReplayDebate }: SessionHistoryProps) {
     const sessions = useAgentStore((state) => state.sessions);
     const bounceHistory = useAgentStore((state) => state.debate.bounceHistory);
     const clearSessions = useAgentStore((state) => state.clearSessions);
@@ -185,7 +187,7 @@ export function SessionHistory({ isOpen, onClose }: SessionHistoryProps) {
                                         {bounceHistory.map((debate, i) => (
                                             <div
                                                 key={`debate-${i}`}
-                                                className="flex items-start gap-2.5 px-2.5 py-2 rounded-lg hover:bg-[color:var(--ac-surface)] transition-colors"
+                                                className="group flex items-start gap-2.5 px-2.5 py-2 rounded-lg hover:bg-[color:var(--ac-surface)] transition-colors"
                                             >
                                                 <div className="w-2 h-2 rounded-full bg-[color:var(--ac-accent)] mt-1.5 shrink-0" />
                                                 <div className="flex-1 min-w-0">
@@ -195,9 +197,18 @@ export function SessionHistory({ isOpen, onClose }: SessionHistoryProps) {
                                                         </span>
                                                     </div>
                                                     <p className="text-[11px] text-[color:var(--ac-text-dim)] mt-0.5">
-                                                        {debate.rounds.length} round{debate.rounds.length !== 1 ? 's' : ''} &middot; {debate.status}
+                                                        {debate.rounds.length} round{debate.rounds.length !== 1 ? 's' : ''} &middot; {Math.round(debate.metrics.finalConsensusScore * 100)}% consensus
                                                     </p>
                                                 </div>
+                                                {onReplayDebate && (
+                                                    <button
+                                                        onClick={() => onReplayDebate(debate)}
+                                                        className="opacity-0 group-hover:opacity-100 p-1 text-[color:var(--ac-text-muted)] hover:text-[color:var(--ac-accent)] transition-all"
+                                                        title="Replay debate"
+                                                    >
+                                                        <Play className="w-3 h-3" />
+                                                    </button>
+                                                )}
                                             </div>
                                         ))}
                                     </>

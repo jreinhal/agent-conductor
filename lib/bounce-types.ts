@@ -350,7 +350,8 @@ export type BounceEvent =
     | { type: 'BOUNCE_COMPLETE'; finalAnswer: string; consensus: ConsensusAnalysis }
     | { type: 'BOUNCE_ERROR'; error: string }
     | { type: 'BOUNCE_CANCELLED' }
-    | { type: 'PARTICIPANT_PRUNED'; sessionId: string; modelTitle: string; reason: string };
+    | { type: 'PARTICIPANT_PRUNED'; sessionId: string; modelTitle: string; reason: string }
+    | { type: 'PARTICIPANT_TAGGED_IN'; participant: ParticipantConfig; reason: string };
 
 export type BounceEventHandler = (event: BounceEvent) => void;
 
