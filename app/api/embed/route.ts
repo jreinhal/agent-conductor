@@ -23,7 +23,12 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const texts: string[] = body.texts;
 
-    if (!Array.isArray(texts) || texts.length === 0 || texts.length > MAX_EMBEDDING_BATCH_SIZE) {
+    if (
+        !Array.isArray(texts) ||
+        texts.length === 0 ||
+        texts.length > MAX_EMBEDDING_BATCH_SIZE ||
+        !texts.every(t => typeof t === 'string')
+    ) {
         return NextResponse.json(
             { error: `texts must be an array of 1-${MAX_EMBEDDING_BATCH_SIZE} strings` },
             { status: 400 }

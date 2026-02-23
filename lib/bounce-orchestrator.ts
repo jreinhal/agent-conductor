@@ -584,9 +584,16 @@ export class BounceOrchestrator {
             return configuredJudge;
         }
 
-        // Try to find a non-participant model from the available model pool
+        // Try to find a non-participant model whose provider has an API key configured
+        const providerKeyMap: Record<string, string | undefined> = {
+            openai: process.env.OPENAI_API_KEY,
+            anthropic: process.env.ANTHROPIC_API_KEY,
+            google: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+        };
         const nonParticipantModel = MODELS.find(
-            m => m.id !== 'auto-router' && !participantModelIds.has(m.id)
+            m => m.id !== 'auto-router'
+                && !participantModelIds.has(m.id)
+                && !!providerKeyMap[m.providerId]
         );
         if (nonParticipantModel) {
             return nonParticipantModel.id;
